@@ -1,0 +1,80 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}Billing & invoices · Accounts{% endblock %}
+{% block header_kicker %}Collections{% endblock %}
+{% block header_title %}Billing and invoices{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:dashboard' %}" class="btn-ghost">← Dashboard</a>
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">Collections</p>
+    <h2 class="sa-hero-title">Billing and invoices</h2>
+    <p class="sa-hero-copy">Invoice-style fee charges and payment receipts across the school.</p>
+  </div>
+</section>
+
+<section class="sa-stats sa-stats-3">
+  <article class="sa-stat">
+    <p class="sa-stat-label">Invoices</p>
+    <p class="sa-stat-value">{{ invoice_count }}</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Receipts</p>
+    <p class="sa-stat-value">{{ payment_count }}</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Collected</p>
+    <p class="sa-stat-value is-brand">KES {{ payments_total|floatformat:2 }}</p>
+  </article>
+</section>
+
+<section class="grid gap-5 lg:grid-cols-2">
+  <article class="sa-list-panel">
+    <div class="sa-list-panel-head">
+      <h3 class="sa-list-panel-title">Recent invoices</h3>
+    </div>
+    <ul>
+      {% for c in charges %}
+      <li class="text-sm">
+        <div class="flex justify-between gap-3">
+          <span class="font-semibold">{{ c.title }}</span>
+          <span>KES {{ c.amount|floatformat:2 }}</span>
+        </div>
+        <p class="text-ink-400">
+          {% if c.student %}{{ c.student.display_name }}{% else %}Student #{{ c.student_id }}{% endif %}
+          · {{ c.category.code }} · {{ c.get_status_display }}
+        </p>
+      </li>
+      {% empty %}
+      <li class="py-6 text-ink-400">No invoices yet.</li>
+      {% endfor %}
+    </ul>
+  </article>
+
+  <article class="sa-list-panel">
+    <div class="sa-list-panel-head">
+      <h3 class="sa-list-panel-title">Recent receipts</h3>
+    </div>
+    <ul>
+      {% for p in payments %}
+      <li class="flex justify-between gap-3 text-sm">
+        <div>
+          <p class="font-semibold">{{ p.get_method_display }}{% if p.reference %} · {{ p.reference }}{% endif %}</p>
+          <p class="text-ink-400">
+            {% if p.student %}{{ p.student.display_name }}{% else %}Student #{{ p.student_id }}{% endif %}
+            · {{ p.received_at|date:"d M Y H:i" }}
+          </p>
+        </div>
+        <span class="font-semibold text-brand">KES {{ p.amount|floatformat:2 }}</span>
+      </li>
+      {% empty %}
+      <li class="py-6 text-ink-400">No receipts yet.</li>
+      {% endfor %}
+    </ul>
+  </article>
+</section>
+{% endblock %}

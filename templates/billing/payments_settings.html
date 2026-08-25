@@ -1,0 +1,214 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}Payments settings · Accounts{% endblock %}
+{% block header_kicker %}System settings{% endblock %}
+{% block header_title %}Payments settings{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:system_settings' %}" class="btn-ghost">← System settings</a>
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">System settings</p>
+    <h2 class="sa-hero-title">Payments settings</h2>
+    <p class="sa-hero-copy">
+      Configure Safaricom Daraja (M-Pesa) API credentials for sandbox testing and live production.
+    </p>
+  </div>
+</section>
+
+{% if daraja.is_enabled and stk_ready %}
+<article class="sa-notice is-success">
+  STK Push is ready for the active {{ daraja.get_active_environment_display }} environment.
+</article>
+{% elif daraja.is_enabled %}
+<article class="sa-notice is-warning">
+  <p class="font-semibold">M-Pesa is enabled, but STK Push cannot prompt yet.</p>
+  <p class="mt-1">Missing: {{ stk_missing_fields|join:", " }}.</p>
+  <p class="mt-1 text-xs opacity-80">Fill every sandbox (or production) field below, including consumer secret and passkey. Callback must include <code>{{ callback_path }}</code>.</p>
+</article>
+{% else %}
+<article class="sa-notice">
+  M-Pesa is currently disabled. Turn it on below after credentials are filled in.
+</article>
+{% endif %}
+
+<article class="panel mb-6 p-5 sm:p-6">
+  <h3 class="font-display text-xl font-semibold text-ink-950">Callback URL</h3>
+  <p class="mt-1 text-sm text-ink-600">
+    Daraja cannot reach <code>localhost</code>. Tunnel your app, then paste the public HTTPS URL into Sandbox callback URL.
+  </p>
+  <ol class="mt-4 list-decimal space-y-2 pl-5 text-sm text-ink-600">
+    <li>Keep Django running on port 8000.</li>
+    <li>Run <code>ngrok http 8000</code> (or <code>cloudflared tunnel --url http://localhost:8000</code>).</li>
+    <li>Use: <code>https://&lt;your-tunnel-host&gt;{{ callback_path }}</code></li>
+  </ol>
+  <p class="mt-4 rounded-2xl border border-ink-950/8 bg-white px-4 py-3 font-mono text-sm text-ink-950 break-all">
+    {{ callback_example }}
+  </p>
+  <p class="mt-2 text-xs text-ink-400">
+    Path on this server: <a href="{% url 'billing:mpesa_callback' %}" class="text-brand font-semibold">{{ callback_path }}</a>
+    · GET returns a health check JSON so you can verify the tunnel.
+  </p>
+</article>
+
+<form method="post" action="{% url 'billing:payments_settings' %}" class="space-y-6" novalidate>
+  {% csrf_token %}
+
+  {% if form.non_field_errors %}
+  <div class="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800">
+    {{ form.non_field_errors }}
+  </div>
+  {% endif %}
+
+  <article class="panel p-5 sm:p-6">
+    <h3 class="font-display text-xl font-semibold text-ink-950">Daraja mode</h3>
+    <p class="mt-1 text-sm text-ink-600">Choose which environment Accounts should use for M-Pesa calls.</p>
+
+    <label class="mt-5 flex items-start gap-3">
+      {{ form.is_enabled }}
+      <span>
+        <span class="block text-sm font-semibold text-ink-950">{{ form.is_enabled.label }}</span>
+        <span class="mt-0.5 block text-xs text-ink-400">When off, M-Pesa collection stays disabled even if credentials are saved.</span>
+      </span>
+    </label>
+
+    <fieldset class="mt-5">
+      <legend class="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-400">{{ form.active_environment.label }}</legend>
+      <div class="grid gap-3 sm:grid-cols-2">
+        {% for radio in form.active_environment %}
+        <label class="flex cursor-pointer items-center gap-3 rounded-2xl border border-ink-950/10 bg-white px-4 py-3 text-sm font-semibold text-ink-950 transition hover:border-brand/30">
+          {{ radio.tag }}
+          <span>{{ radio.choice_label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      {% if form.active_environment.errors %}
+      <p class="mt-2 text-sm text-red-700">{{ form.active_environment.errors|striptags }}</p>
+      {% endif %}
+    </fieldset>
+  </article>
+
+  <div class="grid gap-6 xl:grid-cols-2">
+    <article class="panel p-5 sm:p-6">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Test</p>
+          <h3 class="mt-1 font-display text-xl font-semibold text-ink-950">Sandbox</h3>
+          <p class="mt-1 text-sm text-ink-600">Credentials from the Safaricom Daraja sandbox app.</p>
+        </div>
+        <span class="rounded-full border border-ink-950/10 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-ink-400">
+          sandbox.safaricom.co.ke
+        </span>
+      </div>
+
+      <div class="mt-5 space-y-4">
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">{{ form.sandbox_consumer_key.label }}</span>
+          {{ form.sandbox_consumer_key }}
+          {% if form.sandbox_consumer_key.errors %}<p class="mt-1.5 text-sm text-red-700">{{ form.sandbox_consumer_key.errors|striptags }}</p>{% endif %}
+        </label>
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">{{ form.sandbox_consumer_secret.label }}</span>
+          {{ form.sandbox_consumer_secret }}
+          {% if sandbox_secret_saved %}<span class="mt-1.5 block text-xs text-ink-400">A secret is already saved.</span>{% endif %}
+          {% if form.sandbox_consumer_secret.errors %}<p class="mt-1.5 text-sm text-red-700">{{ form.sandbox_consumer_secret.errors|striptags }}</p>{% endif %}
+        </label>
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">{{ form.sandbox_shortcode.label }}</span>
+          {{ form.sandbox_shortcode }}
+          {% if form.sandbox_shortcode.errors %}<p class="mt-1.5 text-sm text-red-700">{{ form.sandbox_shortcode.errors|striptags }}</p>{% endif %}
+        </label>
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">{{ form.sandbox_passkey.label }}</span>
+          {{ form.sandbox_passkey }}
+          {% if sandbox_passkey_saved %}<span class="mt-1.5 block text-xs text-ink-400">A passkey is already saved.</span>{% endif %}
+          {% if form.sandbox_passkey.errors %}<p class="mt-1.5 text-sm text-red-700">{{ form.sandbox_passkey.errors|striptags }}</p>{% endif %}
+        </label>
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">{{ form.sandbox_callback_url.label }}</span>
+          {{ form.sandbox_callback_url }}
+          <span class="mt-1.5 block text-xs text-ink-400">Example: {{ callback_example }}</span>
+          {% if form.sandbox_callback_url.errors %}<p class="mt-1.5 text-sm text-red-700">{{ form.sandbox_callback_url.errors|striptags }}</p>{% endif %}
+        </label>
+      </div>
+    </article>
+
+    <article class="panel p-5 sm:p-6">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Live</p>
+          <h3 class="mt-1 font-display text-xl font-semibold text-ink-950">Production</h3>
+          <p class="mt-1 text-sm text-ink-600">Live app credentials from the Daraja developer portal.</p>
+        </div>
+        <span class="rounded-full border border-ink-950/10 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-ink-400">
+          api.safaricom.co.ke
+        </span>
+      </div>
+
+      <div class="mt-5 space-y-4">
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">{{ form.production_consumer_key.label }}</span>
+          {{ form.production_consumer_key }}
+          {% if form.production_consumer_key.errors %}<p class="mt-1.5 text-sm text-red-700">{{ form.production_consumer_key.errors|striptags }}</p>{% endif %}
+        </label>
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">{{ form.production_consumer_secret.label }}</span>
+          {{ form.production_consumer_secret }}
+          {% if production_secret_saved %}<span class="mt-1.5 block text-xs text-ink-400">A secret is already saved.</span>{% endif %}
+          {% if form.production_consumer_secret.errors %}<p class="mt-1.5 text-sm text-red-700">{{ form.production_consumer_secret.errors|striptags }}</p>{% endif %}
+        </label>
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">{{ form.production_shortcode.label }}</span>
+          {{ form.production_shortcode }}
+          {% if form.production_shortcode.errors %}<p class="mt-1.5 text-sm text-red-700">{{ form.production_shortcode.errors|striptags }}</p>{% endif %}
+        </label>
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">{{ form.production_passkey.label }}</span>
+          {{ form.production_passkey }}
+          {% if production_passkey_saved %}<span class="mt-1.5 block text-xs text-ink-400">A passkey is already saved.</span>{% endif %}
+          {% if form.production_passkey.errors %}<p class="mt-1.5 text-sm text-red-700">{{ form.production_passkey.errors|striptags }}</p>{% endif %}
+        </label>
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">{{ form.production_callback_url.label }}</span>
+          {{ form.production_callback_url }}
+          {% if form.production_callback_url.errors %}<p class="mt-1.5 text-sm text-red-700">{{ form.production_callback_url.errors|striptags }}</p>{% endif %}
+        </label>
+      </div>
+    </article>
+  </div>
+
+  <div class="flex flex-wrap items-center gap-3">
+    <button type="submit" class="btn-primary px-5 py-3">Save Daraja settings</button>
+    <p class="text-xs text-ink-400">Secrets are not shown after save. Leave secret fields blank to keep existing values.</p>
+  </div>
+</form>
+
+<article class="sa-list-panel mt-7">
+  <div class="sa-list-panel-head">
+    <h3 class="sa-list-panel-title">Recent callbacks</h3>
+    <p class="sa-list-panel-copy">Incoming Daraja STK Push posts to this Accounts portal.</p>
+  </div>
+  <ul>
+    {% for cb in recent_callbacks %}
+    <li class="grid gap-2 text-sm sm:grid-cols-[1.2fr_1fr_1fr_auto] sm:items-center">
+      <div>
+        <p class="font-semibold">{{ cb.mpesa_receipt|default:cb.checkout_request_id|default:"—" }}</p>
+        <p class="text-ink-400">{{ cb.created_at }} · {{ cb.result_desc|default:cb.get_status_display }}</p>
+      </div>
+      <p><span class="text-ink-400 sm:hidden">Amount · </span>{% if cb.amount %}KES {{ cb.amount|floatformat:2 }}{% else %}—{% endif %}</p>
+      <p><span class="text-ink-400 sm:hidden">Phone · </span>{{ cb.phone_number|default:"—" }}</p>
+      <p class="font-semibold {% if cb.status == 'SUCCESS' %}text-brand{% elif cb.status == 'FAILED' %}text-red-700{% else %}text-ink-400{% endif %}">
+        {{ cb.get_status_display }}
+      </p>
+    </li>
+    {% empty %}
+    <li class="py-10 text-center text-sm text-ink-400">
+      No callbacks yet. After tunneling, open the callback URL in a browser — you should see JSON health check.
+    </li>
+    {% endfor %}
+  </ul>
+</article>
+{% endblock %}

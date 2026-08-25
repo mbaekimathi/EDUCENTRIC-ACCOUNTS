@@ -1,0 +1,120 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}Students fees · Accounts{% endblock %}
+{% block header_kicker %}Fees{% endblock %}
+{% block header_title %}Students fees{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:dashboard' %}" class="btn-ghost">← Dashboard</a>
+<a href="{% url 'billing:school_accounts' %}" class="btn-ghost">All school accounts</a>
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">Student fees</p>
+    <h2 class="sa-hero-title">Students fees accounts</h2>
+    <p class="sa-hero-copy">
+      Expected fees come from applied fee structures. Collected is what learners have paid so far.
+    </p>
+  </div>
+</section>
+
+<section class="sa-stats">
+  <article class="sa-stat">
+    <p class="sa-stat-label">Expected to collect</p>
+    <p class="sa-stat-value">KES {{ total_expected|floatformat:2 }}</p>
+    <p class="sa-stat-meta">From applied learner fee charges</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Currently collected</p>
+    <p class="sa-stat-value is-brand">KES {{ total_collected|floatformat:2 }}</p>
+    <p class="sa-stat-meta">Payments applied to fee charges</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Outstanding</p>
+    <p class="sa-stat-value is-accent">KES {{ total_outstanding|floatformat:2 }}</p>
+    <p class="sa-stat-meta">Expected minus collected</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Active accounts</p>
+    <p class="sa-stat-value">{{ active_count }}</p>
+    <p class="sa-stat-meta">
+      {{ fee_accounts|length }} total
+      {% if pending_topup_count %} · {{ pending_topup_count }} pending top-up{{ pending_topup_count|pluralize }}{% endif %}
+    </p>
+  </article>
+</section>
+
+<section class="sa-section">
+  <div class="sa-section-head">
+    <div>
+      <h3 class="sa-section-title">Student fees accounts</h3>
+      <p class="sa-section-copy">Only accounts whose category is Student fees</p>
+    </div>
+  </div>
+
+  {% if fee_accounts %}
+  <div class="sa-table-wrap">
+    <table class="sa-table">
+      <thead>
+        <tr>
+          <th>Account</th>
+          <th>Levels</th>
+          <th>Expected</th>
+          <th>Collected</th>
+          <th>Outstanding</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in fee_accounts %}
+        <tr class="{% if not row.account.is_active %}is-muted-row{% endif %}">
+          <td>
+            <p class="sa-table-primary">
+              <a href="{% url 'billing:student_fees_account_levels' row.account.id %}" class="sa-account-row-link">{{ row.account.name }}</a>
+            </p>
+            <p class="sa-table-secondary">
+              {% if row.account.description %}{{ row.account.description }}{% else %}No description{% endif %}
+              {% if row.votes_count %} · {{ row.votes_count }} vote{{ row.votes_count|pluralize }}{% endif %}
+              {% if row.pending_topups %} · {{ row.pending_topups }} pending{% endif %}
+            </p>
+          </td>
+          <td>
+            {% if row.levels %}
+              {% for level in row.levels %}{{ level.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td>KES {{ row.expected|floatformat:2 }}</td>
+          <td class="is-brand">KES {{ row.collected|floatformat:2 }}</td>
+          <td class="is-accent">KES {{ row.outstanding|floatformat:2 }}</td>
+          <td>
+            {% if row.account.is_active %}
+            <span class="sa-badge is-active">Active</span>
+            {% else %}
+            <span class="sa-badge is-suspended">Suspended</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="{% url 'billing:student_fees_account_levels' row.account.id %}" class="btn-primary btn-compact">Open</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="sa-empty">
+    <div class="sa-empty-mark" aria-hidden="true">F</div>
+    <h4 class="sa-empty-title">No student fees accounts</h4>
+    <p class="sa-empty-copy">
+      Register a school account and set its category to Student fees to see it here.
+    </p>
+    <a href="{% url 'billing:school_accounts' %}" class="btn-primary">Go to school accounts</a>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

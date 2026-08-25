@@ -1,0 +1,32 @@
+    <div class="mt-auto pt-3">
+      <p class="app-nav-label mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">System</p>
+      <a href="{% url 'billing:system_settings' %}"
+         class="app-nav-link {% if request.resolver_match.url_name == 'system_settings' %}is-active{% endif %}"
+         :title="sidebarCollapsed ? 'System settings' : null"
+         @click="sidebarOpen = false">
+        <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 3.5v2.2M12 18.3v2.2M4.9 6.5l1.6 1.6M17.5 15.9l1.6 1.6M3.5 12h2.2M18.3 12h2.2M4.9 17.5l1.6-1.6M17.5 8.1l1.6-1.6" stroke-linecap="round"/>
+        </svg>
+        <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">System settings</span>
+      </a>
+    </div>
+  </nav>
+
+  <div class="shrink-0 border-t border-ink-950/8 p-3" :class="sidebarCollapsed && 'lg:px-2'">
+    <div class="rounded-2xl bg-brand-soft/70 px-3 py-3" :class="sidebarCollapsed && 'lg:flex lg:justify-center lg:px-2 lg:py-2'">
+      <div :class="sidebarCollapsed && 'lg:hidden'">
+        <p class="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-400">Signed in</p>
+        <p class="mt-1 truncate text-sm font-semibold text-ink-950">{{ user.get_full_name|default:user.staff_code }}</p>
+        <p class="truncate text-xs text-ink-600">{{ user.get_role_display }} · {{ user.staff_code }}</p>
+      </div>
+      <span
+        class="hidden h-9 w-9 items-center justify-center rounded-lg bg-white text-xs font-bold text-brand brand-ring"
+        :class="sidebarCollapsed && 'lg:flex'"
+        title="{{ user.get_full_name|default:user.staff_code }}"
+      >
+        {{ user.first_name|default:user.staff_code|slice:":1"|upper }}
+      </span>
+    </div>
+  </div>
+</aside>

@@ -1,0 +1,355 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}Accounts settings · Accounts{% endblock %}
+{% block header_kicker %}System settings{% endblock %}
+{% block header_title %}Accounts settings{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:system_settings' %}" class="btn-ghost">← System settings</a>
+<button type="button" class="btn-primary" data-open-account-modal data-mode="create">+ Register account</button>
+{% endblock %}
+
+{% block sidebar_page_nav %}
+<p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Actions</p>
+<button type="button" class="app-nav-link app-nav-button" data-open-account-modal data-mode="create" :title="sidebarCollapsed ? 'Register account' : null">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <path d="M12 5v14M5 12h14" stroke-linecap="round"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Register account</span>
+</button>
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">System settings</p>
+    <h2 class="sa-hero-title">Accounts settings</h2>
+    <p class="sa-hero-copy">
+      Open an account to manage its votes. You can also edit, suspend, unsuspend, or delete accounts here.
+    </p>
+  </div>
+  <div class="sa-hero__body flex justify-end">
+    <button type="button" class="btn-primary sa-hero-cta" data-open-account-modal data-mode="create">
+      Register account
+    </button>
+  </div>
+</section>
+
+<section class="sa-stats sa-stats-3">
+  <article class="sa-stat">
+    <p class="sa-stat-label">Registered</p>
+    <p class="sa-stat-value">{{ school_account_count }}</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Active</p>
+    <p class="sa-stat-value is-brand">{{ active_account_count }}</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Suspended</p>
+    <p class="sa-stat-value is-accent">{{ suspended_account_count }}</p>
+  </article>
+</section>
+
+<section class="sa-section is-flush">
+  <div class="sa-section-head">
+    <div>
+      <h3 class="sa-section-title">Registered accounts</h3>
+      <p class="sa-section-copy">Click an account to open votes settings.</p>
+    </div>
+  </div>
+
+  {% if registered_accounts %}
+  <div class="sa-account-list">
+    {% for row in registered_accounts %}
+    <article class="sa-account-row {% if not row.account.is_active %}is-suspended{% endif %}">
+      <a href="{% url 'billing:account_votes_settings' row.account.id %}" class="sa-account-row-main sa-account-row-link">
+        <div class="sa-account-mark" aria-hidden="true">{{ row.account.name|slice:":1"|upper }}</div>
+        <div class="sa-account-heading">
+          <div class="sa-account-title-row">
+            <h4 class="sa-account-name">{{ row.account.name }}</h4>
+            {% if row.account.is_active %}
+            <span class="sa-badge is-active">Active</span>
+            {% else %}
+            <span class="sa-badge is-suspended">Suspended</span>
+            {% endif %}
+          </div>
+          <p class="sa-account-category">
+            {{ row.account.category_label }}
+            {% if row.account.description %} · {{ row.account.description }}{% endif %}
+          </p>
+          <div class="sa-chip-row sa-chip-row-inline">
+            {% for mode in row.account.payment_mode_labels %}
+            <span class="sa-chip">{{ mode }}</span>
+            {% empty %}
+            <span class="sa-chip is-muted">No payment modes</span>
+            {% endfor %}
+            {% for level in row.levels %}
+            <span class="sa-chip is-soft">{{ level.name }}</span>
+            {% empty %}
+            <span class="sa-chip is-muted">No levels linked</span>
+            {% endfor %}
+            <span class="sa-chip">{{ row.account.get_vote_fund_allocation_display }}</span>
+            <span class="sa-chip is-soft">Votes settings →</span>
+          </div>
+        </div>
+      </a>
+
+      <div class="sa-account-actions">
+        <button
+          type="button"
+          class="btn-ghost btn-compact"
+          data-open-account-modal
+          data-mode="edit"
+          data-account-id="{{ row.account.id }}"
+          data-category="{{ row.account.category }}"
+          data-custom-category="{{ row.account.custom_category }}"
+          data-name="{{ row.account.name }}"
+          data-description="{{ row.account.description }}"
+          data-payment-modes="{{ row.account.payment_modes|join:',' }}"
+          data-levels="{% for level_id in row.account.academic_level_ids %}{{ level_id }}{% if not forloop.last %},{% endif %}{% endfor %}"
+          data-vote-fund-allocation="{{ row.account.vote_fund_allocation }}"
+        >Edit</button>
+        {% if row.account.is_active %}
+        <form method="post" action="{% url 'billing:accounts_settings' %}">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="suspend">
+          <input type="hidden" name="account_id" value="{{ row.account.id }}">
+          <button type="submit" class="btn-ghost btn-compact">Suspend</button>
+        </form>
+        {% else %}
+        <form method="post" action="{% url 'billing:accounts_settings' %}">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="unsuspend">
+          <input type="hidden" name="account_id" value="{{ row.account.id }}">
+          <button type="submit" class="btn-primary btn-compact">Unsuspend</button>
+        </form>
+        {% endif %}
+        <form method="post" action="{% url 'billing:accounts_settings' %}" onsubmit="return confirm('Delete account “{{ row.account.name|escapejs }}”? This cannot be undone.');">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="delete">
+          <input type="hidden" name="account_id" value="{{ row.account.id }}">
+          <button type="submit" class="btn-danger btn-compact">Delete</button>
+        </form>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="sa-empty">
+    <div class="sa-empty-mark" aria-hidden="true">A</div>
+    <h4 class="sa-empty-title">No accounts yet</h4>
+    <p class="sa-empty-copy">Register the first school account to manage it from settings.</p>
+    <button type="button" class="btn-primary" data-open-account-modal data-mode="create">Register account</button>
+  </div>
+  {% endif %}
+</section>
+
+<dialog id="account-modal" class="account-modal" {% if open_account_modal %}open{% endif %}>
+  <form method="post" action="{% url 'billing:accounts_settings' %}" class="account-modal-card" id="account-form" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="action" id="account-action" value="{% if editing_account_id %}edit{% else %}create{% endif %}">
+    <input type="hidden" name="account_id" id="account-id" value="{{ editing_account_id|default_if_none:'' }}">
+
+    <div class="account-modal-head">
+      <div>
+        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-400">Accounts settings</p>
+        <h3 class="font-display text-2xl font-semibold text-ink-950" id="account-modal-title">
+          {% if editing_account_id %}Edit account{% else %}Register account{% endif %}
+        </h3>
+      </div>
+      <button type="button" class="account-modal-close" data-close-account-modal aria-label="Close">×</button>
+    </div>
+
+    <div class="account-modal-body space-y-4">
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Account category *</span>
+        <select name="category" id="account-category" required class="field-input">
+          <option value="">Select category</option>
+          {% for value, label in account_categories %}
+          <option value="{{ value }}" {% if form_data.category == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <div id="custom-category-wrap" class="{% if form_data.category == 'OTHER' %}block{% else %}hidden{% endif %}">
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Custom category *</span>
+          <input type="text" name="custom_category" id="custom-category" maxlength="120" value="{{ form_data.custom_category }}" class="field-input" data-uppercase placeholder="e.g. Transport fund" autocomplete="off" {% if form_data.category == 'OTHER' %}required{% endif %}>
+        </label>
+      </div>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Account name *</span>
+        <input type="text" name="name" id="account-name" required maxlength="160" value="{{ form_data.name }}" class="field-input" data-uppercase placeholder="e.g. Tuition ledger" autocomplete="off">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Account description</span>
+        <textarea name="description" id="account-description" rows="3" class="field-input" placeholder="Optional notes">{{ form_data.description }}</textarea>
+      </label>
+
+      <fieldset>
+        <legend class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Modes of payment *</legend>
+        <div class="flex flex-wrap gap-2">
+          {% for value, label in payment_modes %}
+          <label class="check-chip">
+            <input type="checkbox" name="payment_modes" value="{{ value }}" class="js-payment-mode" {% if value in form_data.payment_modes %}checked{% endif %}>
+            <span>{{ label }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Academic levels linked</legend>
+        <div class="level-grid">
+          {% for level in academic_levels %}
+          <label class="check-chip">
+            <input type="checkbox" name="academic_levels" value="{{ level.id }}" class="js-academic-level" {% if level.id in form_data.academic_levels %}checked{% endif %}>
+            <span>{{ level.name }}</span>
+          </label>
+          {% empty %}
+          <p class="text-sm text-ink-400">No academic levels found in curriculum.</p>
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Allocate money to votes *</legend>
+        <p class="mb-2 text-xs text-ink-400">Choose how funds on this account are allocated across votes.</p>
+        <div class="grid gap-2">
+          {% for value, label in vote_fund_allocations %}
+          <label class="flex cursor-pointer items-start gap-3 rounded-2xl border border-ink-950/10 bg-white px-4 py-3 text-sm font-semibold text-ink-950 transition hover:border-brand/30">
+            <input
+              type="radio"
+              name="vote_fund_allocation"
+              value="{{ value }}"
+              class="js-vote-fund-allocation mt-0.5"
+              {% if form_data.vote_fund_allocation == value %}checked{% endif %}
+              required
+            >
+            <span>
+              <span class="block">{{ label }}</span>
+              {% if value == "EQUAL" %}
+              <span class="mt-0.5 block text-xs font-normal text-ink-400">Split available funds evenly across all votes.</span>
+              {% else %}
+              <span class="mt-0.5 block text-xs font-normal text-ink-400">Fill votes in allocation-order priority (1 first, then 2, and so on).</span>
+              {% endif %}
+            </span>
+          </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+    </div>
+
+    <div class="account-modal-actions">
+      <button type="button" class="btn-ghost" data-close-account-modal>Cancel</button>
+      <button type="submit" class="btn-primary" id="account-submit-label">{% if editing_account_id %}Save changes{% else %}Save account{% endif %}</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(function () {
+  var modal = document.getElementById("account-modal");
+  if (!modal) return;
+
+  var actionInput = document.getElementById("account-action");
+  var idInput = document.getElementById("account-id");
+  var title = document.getElementById("account-modal-title");
+  var submitLabel = document.getElementById("account-submit-label");
+  var category = document.getElementById("account-category");
+  var customCategoryWrap = document.getElementById("custom-category-wrap");
+  var customCategoryInput = document.getElementById("custom-category");
+  var nameInput = document.getElementById("account-name");
+  var description = document.getElementById("account-description");
+
+  function syncCustomCategoryField() {
+    var isOther = category && category.value === "OTHER";
+    if (customCategoryWrap) {
+      customCategoryWrap.classList.toggle("hidden", !isOther);
+      customCategoryWrap.classList.toggle("block", isOther);
+    }
+    if (customCategoryInput) {
+      customCategoryInput.required = isOther;
+      if (!isOther) customCategoryInput.value = "";
+    }
+  }
+
+  if (category) {
+    category.addEventListener("change", syncCustomCategoryField);
+    syncCustomCategoryField();
+  }
+
+  function openModal() {
+    if (typeof modal.showModal === "function") modal.showModal();
+    else modal.setAttribute("open", "open");
+  }
+
+  function closeModal() {
+    if (typeof modal.close === "function") modal.close();
+    else modal.removeAttribute("open");
+  }
+
+  function setChecked(selector, values) {
+    var selected = {};
+    (values || []).forEach(function (value) { selected[String(value)] = true; });
+    document.querySelectorAll(selector).forEach(function (input) {
+      input.checked = !!selected[String(input.value)];
+    });
+  }
+
+  function setRadio(selector, value) {
+    document.querySelectorAll(selector).forEach(function (input) {
+      input.checked = String(input.value) === String(value || "");
+    });
+  }
+
+  function resetCreateForm() {
+    actionInput.value = "create";
+    idInput.value = "";
+    title.textContent = "Register account";
+    submitLabel.textContent = "Save account";
+    category.value = "";
+    if (customCategoryInput) customCategoryInput.value = "";
+    syncCustomCategoryField();
+    nameInput.value = "";
+    description.value = "";
+    setChecked(".js-payment-mode", []);
+    setChecked(".js-academic-level", []);
+    setRadio(".js-vote-fund-allocation", "PRIORITY_ORDER");
+  }
+
+  function fillEditForm(button) {
+    actionInput.value = "edit";
+    idInput.value = button.getAttribute("data-account-id") || "";
+    title.textContent = "Edit account";
+    submitLabel.textContent = "Save changes";
+    category.value = button.getAttribute("data-category") || "";
+    if (customCategoryInput) {
+      customCategoryInput.value = button.getAttribute("data-custom-category") || "";
+    }
+    syncCustomCategoryField();
+    nameInput.value = button.getAttribute("data-name") || "";
+    description.value = button.getAttribute("data-description") || "";
+    setChecked(".js-payment-mode", (button.getAttribute("data-payment-modes") || "").split(",").filter(Boolean));
+    setChecked(".js-academic-level", (button.getAttribute("data-levels") || "").split(",").filter(Boolean));
+    setRadio(".js-vote-fund-allocation", button.getAttribute("data-vote-fund-allocation") || "PRIORITY_ORDER");
+  }
+
+  document.querySelectorAll("[data-open-account-modal]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      if (btn.getAttribute("data-mode") === "edit") fillEditForm(btn);
+      else resetCreateForm();
+      openModal();
+    });
+  });
+  document.querySelectorAll("[data-close-account-modal]").forEach(function (btn) {
+    btn.addEventListener("click", closeModal);
+  });
+  modal.addEventListener("click", function (event) {
+    if (event.target === modal) closeModal();
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,346 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}Votes · {{ account.name }} · Accounts{% endblock %}
+{% block header_kicker %}Accounts settings{% endblock %}
+{% block header_title %}{{ account.name }} votes{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:accounts_settings' %}" class="btn-ghost">← Accounts settings</a>
+<button type="button" class="btn-primary" data-open-vote-modal>+ Register vote</button>
+{% endblock %}
+
+{% block sidebar_page_nav %}
+<p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Actions</p>
+<button type="button" class="app-nav-link app-nav-button" data-open-vote-modal :title="sidebarCollapsed ? 'Register vote' : null">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <path d="M8 7h8M8 12h8M8 17h5" stroke-linecap="round"/>
+    <rect x="4" y="4" width="16" height="16" rx="2"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Register vote</span>
+</button>
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">{{ account.category_label }}</p>
+    <h2 class="sa-hero-title">{{ account.name }} votes</h2>
+    <p class="sa-hero-copy">
+      Register and manage budget votes
+      · {% if account.vote_fund_allocation == "EQUAL" %}allocate equally{% else %}allocate by priority order{% endif %}.
+    </p>
+  </div>
+  <div class="sa-hero__body flex justify-end">
+    <button type="button" class="btn-primary sa-hero-cta" data-open-vote-modal>Register vote</button>
+  </div>
+</section>
+
+<section class="sa-stats">
+  <article class="sa-stat">
+    <p class="sa-stat-label">Total topped up</p>
+    <p class="sa-stat-value is-brand">KES {{ balance|floatformat:2 }}</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Allocated</p>
+    <p class="sa-stat-value">KES {{ votes_allocated|floatformat:2 }}</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Remaining</p>
+    <p class="sa-stat-value is-accent">KES {{ unallocated|floatformat:2 }}</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Votes</p>
+    <p class="sa-stat-value">{{ votes|length }}</p>
+    <p class="sa-stat-meta">{{ approved_vote_count }} active · {{ suspended_vote_count }} suspended</p>
+  </article>
+</section>
+
+<section class="sa-section is-flush">
+  <div class="sa-section-head">
+    <div>
+      <h3 class="sa-section-title">Registered votes</h3>
+      <p class="sa-section-copy">Edit, suspend, unsuspend, or delete each vote.</p>
+    </div>
+    <button type="button" class="btn-ghost" data-open-vote-modal>Register vote</button>
+  </div>
+
+  {% if votes %}
+  <div class="sa-account-list">
+    {% for vote in votes %}
+    <article class="sa-account-row {% if vote.status == 'SUSPENDED' or vote.status == 'CANCELLED' %}is-suspended{% endif %}">
+      <div class="sa-account-row-main">
+        <div class="sa-account-mark" aria-hidden="true">{{ vote.allocation_order }}</div>
+        <div class="sa-account-heading">
+          <div class="sa-account-title-row">
+            <h4 class="sa-account-name">{{ vote.name }}</h4>
+            <span class="sa-badge {% if vote.status == 'APPROVED' %}is-active{% elif vote.status == 'PENDING' %}is-pending{% else %}is-suspended{% endif %}">
+              {{ vote.get_status_display }}
+            </span>
+          </div>
+          <p class="sa-account-category">
+            {{ vote.code }}
+            {% if vote.description %} · {{ vote.description }}{% endif %}
+            · Order {{ vote.allocation_order }}
+          </p>
+          <div class="sa-chip-row sa-chip-row-inline">
+            {% if vote.allocation_mode == 'PERCENTAGE' %}
+            <span class="sa-chip">{{ vote.percentage|floatformat:2 }}% of topped up</span>
+            {% else %}
+            <span class="sa-chip">Fixed amount</span>
+            {% endif %}
+            <span class="sa-chip is-soft">KES {{ vote.amount|floatformat:2 }}</span>
+            <span class="sa-chip is-muted">{{ vote.reference_code }}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sa-account-actions">
+        <button
+          type="button"
+          class="btn-ghost btn-compact"
+          data-open-vote-modal
+          data-mode="edit"
+          data-vote-id="{{ vote.id }}"
+          data-vote-name="{{ vote.name }}"
+          data-vote-code="{{ vote.code }}"
+          data-vote-description="{{ vote.description }}"
+          data-allocation-order="{{ vote.allocation_order }}"
+          data-allocation-mode="{{ vote.allocation_mode }}"
+          data-vote-amount="{{ vote.amount }}"
+          data-vote-percentage="{{ vote.percentage|default_if_none:'' }}"
+        >Edit</button>
+        {% if vote.status == 'APPROVED' or vote.status == 'PENDING' %}
+        <form method="post" action="{% url 'billing:account_votes_settings' account.id %}">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="suspend_vote">
+          <input type="hidden" name="vote_id" value="{{ vote.id }}">
+          <button type="submit" class="btn-ghost btn-compact">Suspend</button>
+        </form>
+        {% else %}
+        <form method="post" action="{% url 'billing:account_votes_settings' account.id %}">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="unsuspend_vote">
+          <input type="hidden" name="vote_id" value="{{ vote.id }}">
+          <button type="submit" class="btn-primary btn-compact">Unsuspend</button>
+        </form>
+        {% endif %}
+        <form method="post" action="{% url 'billing:account_votes_settings' account.id %}" onsubmit="return confirm('Delete vote “{{ vote.name|escapejs }}”? This cannot be undone.');">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="delete_vote">
+          <input type="hidden" name="vote_id" value="{{ vote.id }}">
+          <button type="submit" class="btn-danger btn-compact">Delete</button>
+        </form>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="sa-empty">
+    <div class="sa-empty-mark" aria-hidden="true">V</div>
+    <h4 class="sa-empty-title">No votes yet</h4>
+    <p class="sa-empty-copy">Register the first vote to allocate topped-up funds on this account.</p>
+    <button type="button" class="btn-primary" data-open-vote-modal>Register vote</button>
+  </div>
+  {% endif %}
+</section>
+
+<dialog id="vote-modal" class="account-modal" {% if open_vote_modal %}open{% endif %}>
+  <form method="post" action="{% url 'billing:account_votes_settings' account.id %}" class="account-modal-card" id="vote-form" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="action" id="vote-action" value="{% if editing_vote_id %}edit_vote{% else %}register_vote{% endif %}">
+    <input type="hidden" name="vote_id" id="vote-id" value="{{ editing_vote_id|default_if_none:'' }}">
+
+    <div class="account-modal-head">
+      <div>
+        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-400">{{ account.name }}</p>
+        <h3 class="font-display text-2xl font-semibold text-ink-950" id="vote-modal-title">
+          {% if editing_vote_id %}Edit vote{% else %}Register vote{% endif %}
+        </h3>
+      </div>
+      <button type="button" class="account-modal-close" data-close-vote-modal aria-label="Close">×</button>
+    </div>
+
+    <div class="account-modal-body space-y-4">
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Vote name *</span>
+        <input type="text" name="vote_name" id="vote-name" required maxlength="160" value="{{ vote_form.name }}" class="field-input" data-uppercase placeholder="e.g. Teaching materials" autocomplete="off">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Vote code</span>
+        <input type="text" name="vote_code" id="vote-code" maxlength="40" value="{{ vote_form.code }}" class="field-input" data-uppercase placeholder="Optional — auto-filled if blank" autocomplete="off">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Short description</span>
+        <input type="text" name="vote_description" id="vote-description" maxlength="255" value="{{ vote_form.description }}" class="field-input" placeholder="Optional notes">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Order of allocation *</span>
+        <input type="number" name="allocation_order" id="vote-allocation-order" required min="1" step="1" value="{{ vote_form.allocation_order }}" class="field-input" placeholder="1">
+        <p class="mt-1.5 text-xs text-ink-400">Lower numbers are allocated first (1 = highest priority).</p>
+      </label>
+
+      <fieldset>
+        <legend class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Allocation *</legend>
+        <div class="flex flex-wrap gap-2">
+          <label class="check-chip">
+            <input type="radio" name="allocation_mode" value="AMOUNT" class="js-vote-mode" {% if vote_form.allocation_mode != 'PERCENTAGE' %}checked{% endif %}>
+            <span>Fixed amount</span>
+          </label>
+          <label class="check-chip">
+            <input type="radio" name="allocation_mode" value="PERCENTAGE" class="js-vote-mode" {% if vote_form.allocation_mode == 'PERCENTAGE' %}checked{% endif %}>
+            <span>% of total topped up</span>
+          </label>
+        </div>
+      </fieldset>
+
+      <p class="rounded-lg border border-dashed border-ink-200 bg-ink-50/60 px-3 py-2 text-sm text-ink-500">
+        Total topped up: <strong class="text-ink-700">KES {{ balance|floatformat:2 }}</strong>
+        · Remaining to allocate: <strong class="text-ink-700">KES {{ unallocated|floatformat:2 }}</strong>
+      </p>
+
+      <div class="vote-alloc-panel" data-vote-amount-field {% if vote_form.allocation_mode == 'PERCENTAGE' %}hidden{% endif %}>
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Amount to allocate (KES) *</span>
+          <input type="number" name="vote_amount" id="vote-amount" min="0.01" step="0.01" value="{{ vote_form.amount }}" class="field-input" placeholder="0.00" {% if vote_form.allocation_mode == 'PERCENTAGE' %}disabled{% else %}required{% endif %}>
+        </label>
+      </div>
+
+      <div class="vote-alloc-panel" data-vote-percentage-field {% if vote_form.allocation_mode != 'PERCENTAGE' %}hidden{% endif %}>
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Percentage of total topped up *</span>
+          <input type="number" name="vote_percentage" id="vote-percentage" min="0.01" max="100" step="0.01" value="{{ vote_form.percentage }}" class="field-input" placeholder="e.g. 25" {% if vote_form.allocation_mode == 'PERCENTAGE' %}required{% else %}disabled{% endif %}>
+        </label>
+        <p class="mt-1.5 text-xs text-ink-400" data-vote-percentage-preview>
+          Allocates KES <span data-vote-computed-amount>0.00</span> of the total topped-up amount (KES {{ balance|floatformat:2 }}).
+        </p>
+      </div>
+    </div>
+
+    <div class="account-modal-actions">
+      <button type="button" class="btn-ghost" data-close-vote-modal>Cancel</button>
+      <button type="submit" class="btn-primary" id="vote-submit-label">{% if editing_vote_id %}Save changes{% else %}Register vote{% endif %}</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(function () {
+  var modal = document.getElementById("vote-modal");
+  if (!modal) return;
+  var amountField = modal.querySelector("[data-vote-amount-field]");
+  var percentageField = modal.querySelector("[data-vote-percentage-field]");
+  var amountInput = document.getElementById("vote-amount");
+  var percentageInput = document.getElementById("vote-percentage");
+  var computedAmount = modal.querySelector("[data-vote-computed-amount]");
+  var actionInput = document.getElementById("vote-action");
+  var idInput = document.getElementById("vote-id");
+  var title = document.getElementById("vote-modal-title");
+  var submitLabel = document.getElementById("vote-submit-label");
+  var nameInput = document.getElementById("vote-name");
+  var codeInput = document.getElementById("vote-code");
+  var descriptionInput = document.getElementById("vote-description");
+  var orderInput = document.getElementById("vote-allocation-order");
+  var nextOrder = "{{ next_vote_order|default:vote_form.allocation_order|default:'1' }}";
+  var balance = Number("{{ balance|stringformat:'f' }}") || 0;
+
+  function selectedMode() {
+    var checked = modal.querySelector('input[name="allocation_mode"]:checked');
+    return checked ? checked.value : "AMOUNT";
+  }
+
+  function setMode(mode) {
+    modal.querySelectorAll(".js-vote-mode").forEach(function (input) {
+      input.checked = input.value === mode;
+    });
+  }
+
+  function updatePreview() {
+    if (!computedAmount || !percentageInput) return;
+    var pct = Number(percentageInput.value);
+    if (!isFinite(pct) || pct <= 0) {
+      computedAmount.textContent = "0.00";
+      return;
+    }
+    computedAmount.textContent = ((balance * pct) / 100).toFixed(2);
+  }
+
+  function setPanelActive(panel, input, active, keepValue) {
+    if (panel) {
+      if (active) panel.removeAttribute("hidden");
+      else panel.setAttribute("hidden", "hidden");
+    }
+    if (input) {
+      input.disabled = !active;
+      input.required = active;
+      if (!active && !keepValue) input.value = "";
+    }
+  }
+
+  function syncMode(keepValues) {
+    var isPercentage = selectedMode() === "PERCENTAGE";
+    setPanelActive(amountField, amountInput, !isPercentage, keepValues);
+    setPanelActive(percentageField, percentageInput, isPercentage, keepValues);
+    updatePreview();
+  }
+
+  function resetCreateForm() {
+    actionInput.value = "register_vote";
+    idInput.value = "";
+    title.textContent = "Register vote";
+    submitLabel.textContent = "Register vote";
+    nameInput.value = "";
+    codeInput.value = "";
+    descriptionInput.value = "";
+    orderInput.value = nextOrder;
+    amountInput.value = "";
+    percentageInput.value = "";
+    setMode("AMOUNT");
+    syncMode(false);
+  }
+
+  function fillEditForm(button) {
+    actionInput.value = "edit_vote";
+    idInput.value = button.getAttribute("data-vote-id") || "";
+    title.textContent = "Edit vote";
+    submitLabel.textContent = "Save changes";
+    nameInput.value = button.getAttribute("data-vote-name") || "";
+    codeInput.value = button.getAttribute("data-vote-code") || "";
+    descriptionInput.value = button.getAttribute("data-vote-description") || "";
+    orderInput.value = button.getAttribute("data-allocation-order") || "";
+    var mode = button.getAttribute("data-allocation-mode") || "AMOUNT";
+    setMode(mode);
+    amountInput.value = button.getAttribute("data-vote-amount") || "";
+    percentageInput.value = button.getAttribute("data-vote-percentage") || "";
+    syncMode(true);
+  }
+
+  function openModal(button) {
+    if (button && button.getAttribute("data-mode") === "edit") fillEditForm(button);
+    else resetCreateForm();
+    if (typeof modal.showModal === "function") modal.showModal();
+    else modal.setAttribute("open", "open");
+  }
+  function closeModal() {
+    if (typeof modal.close === "function") modal.close();
+    else modal.removeAttribute("open");
+  }
+  document.querySelectorAll("[data-open-vote-modal]").forEach(function (btn) {
+    btn.addEventListener("click", function () { openModal(btn); });
+  });
+  document.querySelectorAll("[data-close-vote-modal]").forEach(function (btn) {
+    btn.addEventListener("click", closeModal);
+  });
+  modal.addEventListener("click", function (event) {
+    if (event.target === modal) closeModal();
+  });
+  modal.querySelectorAll(".js-vote-mode").forEach(function (input) {
+    input.addEventListener("change", function () { syncMode(true); });
+  });
+  if (percentageInput) percentageInput.addEventListener("input", updatePreview);
+  syncMode(true);
+})();
+</script>
+{% endblock %}

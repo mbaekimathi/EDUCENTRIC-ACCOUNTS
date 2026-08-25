@@ -1,0 +1,489 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}School accounts · Accounts{% endblock %}
+{% block header_kicker %}Ledgers{% endblock %}
+{% block header_title %}School accounts{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:dashboard' %}" class="btn-ghost">← Dashboard</a>
+<button type="button" class="btn-ghost" data-open-topup-modal>Top up</button>
+<button type="button" class="btn-primary" data-open-account-modal data-mode="create">+ Register account</button>
+{% endblock %}
+
+{% block sidebar_page_nav %}
+<p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Actions</p>
+<button type="button" class="app-nav-link app-nav-button" data-open-account-modal data-mode="create" :title="sidebarCollapsed ? 'Register account' : null">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <path d="M12 5v14M5 12h14" stroke-linecap="round"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Register account</span>
+</button>
+<button type="button" class="app-nav-link app-nav-button" data-open-topup-modal :title="sidebarCollapsed ? 'Top up account' : null">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <path d="M12 3v18M7 8h7.5a3.5 3.5 0 0 1 0 7H9" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Top up account</span>
+</button>
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner anim-rise">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">Finance workspace</p>
+    <h2 class="sa-hero-title">School accounts</h2>
+    <p class="sa-hero-copy">
+      Account balances from approved top-ups. Open an account to view its ledger.
+    </p>
+  </div>
+  <div class="sa-hero__body flex flex-wrap justify-end gap-2">
+    <button type="button" class="btn-primary sa-hero-cta" data-open-topup-modal>
+      Top up account
+    </button>
+  </div>
+</section>
+
+<section class="sa-stats anim-rise-delay">
+  <article class="sa-stat">
+    <p class="sa-stat-label">Total balance</p>
+    <p class="sa-stat-value is-brand">KES {{ total_balance|floatformat:2 }}</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Active accounts</p>
+    <p class="sa-stat-value">{{ active_account_count }}</p>
+    <p class="sa-stat-meta">{{ registered_accounts|length }} total registered</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Pending top-ups</p>
+    <p class="sa-stat-value is-accent">{{ pending_topup_count }}</p>
+  </article>
+</section>
+
+<section class="sa-section">
+  <div class="sa-section-head">
+    <div>
+      <h3 class="sa-section-title">Accounts &amp; balances</h3>
+      <p class="sa-section-copy">Approved top-ups only. Pending entries do not affect balance yet.</p>
+    </div>
+    <button type="button" class="btn-ghost" data-open-account-modal data-mode="create">Register account</button>
+  </div>
+
+  {% if registered_accounts %}
+  <div class="sa-table-wrap">
+    <table class="sa-table">
+      <thead>
+        <tr>
+          <th>Account</th>
+          <th>Category</th>
+          <th>Status</th>
+          <th>Balance</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in registered_accounts %}
+        <tr class="{% if not row.account.is_active %}is-muted-row{% endif %}">
+          <td>
+            <p class="sa-table-primary">{{ row.account.name }}</p>
+            <p class="sa-table-secondary">
+              {% if row.account.description %}{{ row.account.description }}{% else %}No description{% endif %}
+              {% if row.pending_topups %} · {{ row.pending_topups }} pending{% endif %}
+            </p>
+          </td>
+          <td>{{ row.account.category_label }}</td>
+          <td>
+            {% if row.account.is_active %}
+            <span class="sa-badge is-active">Active</span>
+            {% else %}
+            <span class="sa-badge is-suspended">Suspended</span>
+            {% endif %}
+          </td>
+          <td class="is-brand sa-balance-cell">KES {{ row.balance|floatformat:2 }}</td>
+          <td>
+            <a href="{% url 'billing:school_account_detail' row.account.id %}" class="btn-ghost btn-compact">View</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="sa-empty">
+    <div class="sa-empty-mark" aria-hidden="true">A</div>
+    <h4 class="sa-empty-title">No accounts yet</h4>
+    <p class="sa-empty-copy">Register the first school account to start tracking balances.</p>
+    <button type="button" class="btn-primary" data-open-account-modal data-mode="create">Register account</button>
+  </div>
+  {% endif %}
+</section>
+
+<section class="sa-section">
+  <div class="sa-section-head">
+    <div>
+      <h3 class="sa-section-title">Recent top-ups</h3>
+      <p class="sa-section-copy">Latest credits posted to school accounts</p>
+    </div>
+    <button type="button" class="btn-ghost" data-open-topup-modal>Top up account</button>
+  </div>
+
+  <div class="sa-table-wrap">
+    <table class="sa-table">
+      <thead>
+        <tr>
+          <th>Reference code</th>
+          <th>Account</th>
+          <th>Method</th>
+          <th>Amount</th>
+          <th>Status</th>
+          <th>When</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for topup in recent_topups %}
+        <tr>
+          <td>
+            <p class="sa-table-primary">{{ topup.reference_code }}</p>
+            <p class="sa-table-secondary">Ref · {{ topup.reference_number }}{% if topup.description %} · {{ topup.description }}{% endif %}</p>
+          </td>
+          <td>{{ topup.account.name }}</td>
+          <td>{{ topup.get_method_display }}</td>
+          <td class="is-brand">KES {{ topup.amount|floatformat:2 }}</td>
+          <td>
+            <span class="sa-badge {% if topup.status == 'APPROVED' %}is-active{% elif topup.status == 'PENDING' %}is-pending{% else %}is-suspended{% endif %}">
+              {{ topup.get_status_display }}
+            </span>
+          </td>
+          <td>{{ topup.created_at|date:"d M Y, H:i" }}</td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="6" class="sa-table-empty">No top-ups recorded yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<dialog id="account-modal" class="account-modal" {% if open_account_modal %}open{% endif %}>
+  <form method="post" action="{% url 'billing:school_accounts' %}" class="account-modal-card" id="account-form" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="action" id="account-action" value="{% if editing_account_id %}edit{% else %}create{% endif %}">
+    <input type="hidden" name="account_id" id="account-id" value="{{ editing_account_id|default_if_none:'' }}">
+
+    <div class="account-modal-head">
+      <div>
+        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-400">School accounts</p>
+        <h3 class="font-display text-2xl font-semibold text-ink-950" id="account-modal-title">
+          {% if editing_account_id %}Edit account{% else %}Register account{% endif %}
+        </h3>
+      </div>
+      <button type="button" class="account-modal-close" data-close-account-modal aria-label="Close">×</button>
+    </div>
+
+    <div class="account-modal-body space-y-4">
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Account category *</span>
+        <select name="category" id="account-category" required class="field-input">
+          <option value="">Select category</option>
+          {% for value, label in account_categories %}
+          <option value="{{ value }}" {% if form_data.category == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <div id="custom-category-wrap" class="{% if form_data.category == 'OTHER' %}block{% else %}hidden{% endif %}">
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Custom category *</span>
+          <input type="text" name="custom_category" id="custom-category" maxlength="120" value="{{ form_data.custom_category }}" class="field-input" data-uppercase placeholder="e.g. Transport fund" autocomplete="off" {% if form_data.category == 'OTHER' %}required{% endif %}>
+        </label>
+      </div>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Account name *</span>
+        <input type="text" name="name" id="account-name" required maxlength="160" value="{{ form_data.name }}" class="field-input" data-uppercase placeholder="e.g. Tuition ledger" autocomplete="off">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Account description</span>
+        <textarea name="description" id="account-description" rows="3" class="field-input" placeholder="Optional notes">{{ form_data.description }}</textarea>
+      </label>
+
+      <fieldset>
+        <legend class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Modes of payment *</legend>
+        <div class="flex flex-wrap gap-2">
+          {% for value, label in payment_modes %}
+          <label class="check-chip">
+            <input type="checkbox" name="payment_modes" value="{{ value }}" class="js-payment-mode" {% if value in form_data.payment_modes %}checked{% endif %}>
+            <span>{{ label }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Academic levels linked</legend>
+        <div class="level-grid">
+          {% for level in academic_levels %}
+          <label class="check-chip">
+            <input type="checkbox" name="academic_levels" value="{{ level.id }}" class="js-academic-level" {% if level.id in form_data.academic_levels %}checked{% endif %}>
+            <span>{{ level.name }}</span>
+          </label>
+          {% empty %}
+          <p class="text-sm text-ink-400">No academic levels found in curriculum.</p>
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Allocate money to votes *</legend>
+        <p class="mb-2 text-xs text-ink-400">Choose how funds on this account are allocated across votes.</p>
+        <div class="grid gap-2">
+          {% for value, label in vote_fund_allocations %}
+          <label class="flex cursor-pointer items-start gap-3 rounded-2xl border border-ink-950/10 bg-white px-4 py-3 text-sm font-semibold text-ink-950 transition hover:border-brand/30">
+            <input
+              type="radio"
+              name="vote_fund_allocation"
+              value="{{ value }}"
+              class="js-vote-fund-allocation mt-0.5"
+              {% if form_data.vote_fund_allocation == value %}checked{% endif %}
+              required
+            >
+            <span>
+              <span class="block">{{ label }}</span>
+              {% if value == "EQUAL" %}
+              <span class="mt-0.5 block text-xs font-normal text-ink-400">Split available funds evenly across all votes.</span>
+              {% else %}
+              <span class="mt-0.5 block text-xs font-normal text-ink-400">Fill votes in allocation-order priority (1 first, then 2, and so on).</span>
+              {% endif %}
+            </span>
+          </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+    </div>
+
+    <div class="account-modal-actions">
+      <button type="button" class="btn-ghost" data-close-account-modal>Cancel</button>
+      <button type="submit" class="btn-primary" id="account-submit-label">{% if editing_account_id %}Save changes{% else %}Save account{% endif %}</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="topup-modal" class="account-modal" {% if open_topup_modal %}open{% endif %}>
+  <form method="post" action="{% url 'billing:school_accounts' %}" class="account-modal-card" id="topup-form" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="action" value="topup">
+
+    <div class="account-modal-head">
+      <div>
+        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-400">School accounts</p>
+        <h3 class="font-display text-2xl font-semibold text-ink-950">Top up account</h3>
+      </div>
+      <button type="button" class="account-modal-close" data-close-topup-modal aria-label="Close">×</button>
+    </div>
+
+    <div class="account-modal-body space-y-4">
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Account *</span>
+        <select name="topup_account_id" id="topup-account" required class="field-input">
+          <option value="">Select account</option>
+          {% for account in active_accounts %}
+          <option value="{{ account.id }}" {% if topup_form.account_id == account.id|stringformat:"s" %}selected{% endif %}>
+            {{ account.name }} · {{ account.category_label }}
+          </option>
+          {% empty %}
+          <option value="" disabled>No active accounts</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Amount (KES) *</span>
+        <input type="number" name="amount" id="topup-amount" required min="0.01" step="0.01" value="{{ topup_form.amount }}" class="field-input" placeholder="0.00">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Method of top up *</span>
+        <select name="method" id="topup-method" required class="field-input">
+          <option value="">Select method</option>
+          {% for value, label in topup_methods %}
+          <option value="{{ value }}" {% if topup_form.method == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        {% if not mpesa_enabled %}
+        <p class="mt-1.5 text-xs text-ink-400">STK Push is hidden until M-Pesa is enabled in System settings.</p>
+        {% endif %}
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Short description</span>
+        <input type="text" name="description" id="topup-description" maxlength="255" value="{{ topup_form.description }}" class="field-input" placeholder="e.g. Term 1 float">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Reference number *</span>
+        <input type="text" name="reference_number" id="topup-reference-number" required maxlength="120" value="{{ topup_form.reference_number }}" class="field-input" data-uppercase placeholder="Receipt / cheque / M-Pesa code" autocomplete="off">
+      </label>
+
+      <p class="rounded-lg border border-dashed border-ink-200 bg-ink-50/60 px-3 py-2 text-sm text-ink-500">
+        A unique reference code (e.g. <span class="font-mono text-ink-700">TOP-YYYYMMDD…</span>) is generated automatically when you save.
+      </p>
+    </div>
+
+    <div class="account-modal-actions">
+      <button type="button" class="btn-ghost" data-close-topup-modal>Cancel</button>
+      <button type="submit" class="btn-primary">Record top up</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(function () {
+  function closeSidebar() {
+    var shell = document.querySelector("[data-app-shell]");
+    var overlay = document.querySelector("[data-sidebar-overlay]");
+    if (shell) shell.classList.remove("is-sidebar-open");
+    if (overlay) overlay.hidden = true;
+  }
+
+  function wireModal(modal, openSelector, closeSelector, beforeOpen) {
+    if (!modal) return;
+    var ignoreBackdropUntil = 0;
+
+    function show() {
+      closeSidebar();
+      ignoreBackdropUntil = Date.now() + 400;
+      window.setTimeout(function () {
+        if (typeof modal.showModal === "function") {
+          if (!modal.open) modal.showModal();
+        } else {
+          modal.setAttribute("open", "open");
+        }
+      }, 0);
+    }
+
+    function close() {
+      if (Date.now() < ignoreBackdropUntil) return;
+      if (typeof modal.close === "function") modal.close();
+      else modal.removeAttribute("open");
+    }
+
+    document.querySelectorAll(openSelector).forEach(function (btn) {
+      btn.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof beforeOpen === "function") beforeOpen(btn);
+        show();
+      });
+    });
+    document.querySelectorAll(closeSelector).forEach(function (btn) {
+      btn.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        ignoreBackdropUntil = 0;
+        close();
+      });
+    });
+    modal.addEventListener("click", function (event) {
+      if (event.target === modal) close();
+    });
+
+    if (modal.hasAttribute("open")) {
+      modal.removeAttribute("open");
+      ignoreBackdropUntil = Date.now() + 400;
+      if (typeof modal.showModal === "function") modal.showModal();
+      else modal.setAttribute("open", "open");
+    }
+  }
+
+  (function () {
+    var modal = document.getElementById("account-modal");
+    if (!modal) return;
+
+    var actionInput = document.getElementById("account-action");
+    var idInput = document.getElementById("account-id");
+    var title = document.getElementById("account-modal-title");
+    var submitLabel = document.getElementById("account-submit-label");
+    var category = document.getElementById("account-category");
+    var customCategoryWrap = document.getElementById("custom-category-wrap");
+    var customCategoryInput = document.getElementById("custom-category");
+    var nameInput = document.getElementById("account-name");
+    var description = document.getElementById("account-description");
+
+    function syncCustomCategoryField() {
+      var isOther = category && category.value === "OTHER";
+      if (customCategoryWrap) {
+        customCategoryWrap.classList.toggle("hidden", !isOther);
+        customCategoryWrap.classList.toggle("block", isOther);
+      }
+      if (customCategoryInput) {
+        customCategoryInput.required = isOther;
+        if (!isOther) customCategoryInput.value = "";
+      }
+    }
+
+    if (category) {
+      category.addEventListener("change", syncCustomCategoryField);
+      syncCustomCategoryField();
+    }
+
+    function setChecked(selector, values) {
+      var selected = {};
+      (values || []).forEach(function (value) { selected[String(value)] = true; });
+      document.querySelectorAll(selector).forEach(function (input) {
+        input.checked = !!selected[String(input.value)];
+      });
+    }
+
+    function setRadio(selector, value) {
+      document.querySelectorAll(selector).forEach(function (input) {
+        input.checked = String(input.value) === String(value || "");
+      });
+    }
+
+    function resetCreateForm() {
+      actionInput.value = "create";
+      idInput.value = "";
+      title.textContent = "Register account";
+      submitLabel.textContent = "Save account";
+      category.value = "";
+      if (customCategoryInput) customCategoryInput.value = "";
+      syncCustomCategoryField();
+      nameInput.value = "";
+      description.value = "";
+      setChecked(".js-payment-mode", []);
+      setChecked(".js-academic-level", []);
+      setRadio(".js-vote-fund-allocation", "PRIORITY_ORDER");
+    }
+
+    function fillEditForm(button) {
+      actionInput.value = "edit";
+      idInput.value = button.getAttribute("data-account-id") || "";
+      title.textContent = "Edit account";
+      submitLabel.textContent = "Save changes";
+      category.value = button.getAttribute("data-category") || "";
+      if (customCategoryInput) {
+        customCategoryInput.value = button.getAttribute("data-custom-category") || "";
+      }
+      syncCustomCategoryField();
+      nameInput.value = button.getAttribute("data-name") || "";
+      description.value = button.getAttribute("data-description") || "";
+      setChecked(".js-payment-mode", (button.getAttribute("data-payment-modes") || "").split(",").filter(Boolean));
+      setChecked(".js-academic-level", (button.getAttribute("data-levels") || "").split(",").filter(Boolean));
+      setRadio(".js-vote-fund-allocation", button.getAttribute("data-vote-fund-allocation") || "PRIORITY_ORDER");
+    }
+
+    wireModal(modal, "[data-open-account-modal]", "[data-close-account-modal]", function (btn) {
+      if (btn.getAttribute("data-mode") === "edit") fillEditForm(btn);
+      else resetCreateForm();
+    });
+  })();
+
+  wireModal(
+    document.getElementById("topup-modal"),
+    "[data-open-topup-modal]",
+    "[data-close-topup-modal]"
+  );
+})();
+</script>
+{% endblock %}

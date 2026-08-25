@@ -1,0 +1,805 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}{{ level.name }} · {{ account.name }}{% endblock %}
+{% block header_kicker %}{{ account.name }}{% endblock %}
+{% block header_title %}{{ level.name }}{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:student_fees_account_levels' account.id %}" class="btn-ghost">← Levels</a>
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">{{ level.code }}{% if level.category %} · {{ level.category }}{% endif %}</p>
+    <h2 class="sa-hero-title">{{ level.name }}</h2>
+    <p class="sa-hero-copy">
+      Learners in this level for {{ account.name }}. Update fees per learner using the account’s enabled payment methods.
+    </p>
+  </div>
+</section>
+
+<section class="sa-stats" id="level-fee-stats">
+  <article class="sa-stat">
+    <p class="sa-stat-label">Learners</p>
+    <p class="sa-stat-value">{{ students|length }}</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Total charged</p>
+    <p class="sa-stat-value" data-stat="charged">KES {{ totals.charged|floatformat:2 }}</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Payment total</p>
+    <p class="sa-stat-value is-brand" data-stat="paid">KES {{ totals.paid|floatformat:2 }}</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Outstanding balance</p>
+    <p class="sa-stat-value is-accent" data-stat="balance">KES {{ totals.balance|floatformat:2 }}</p>
+  </article>
+</section>
+
+<section class="sa-section">
+  <div class="sa-section-head">
+    <div>
+      <h3 class="sa-section-title">Learners</h3>
+      <p class="sa-section-copy">Record a payment to update each learner’s fees</p>
+    </div>
+  </div>
+
+  <form method="get" class="mb-4 max-w-xl">
+    <label class="block">
+      <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Search learners</span>
+      <input type="search" name="q" value="{{ q }}" placeholder="Name, admission, or assessment…" class="field-input">
+    </label>
+  </form>
+
+  {% if not student_key %}
+  <div class="sa-empty">
+    <div class="sa-empty-mark" aria-hidden="true">?</div>
+    <h4 class="sa-empty-title">Level mapping missing</h4>
+    <p class="sa-empty-copy">
+      Could not match curriculum level “{{ level.name }}” ({{ level.code }}) to learner academic levels.
+    </p>
+  </div>
+  {% elif students %}
+  <div class="sa-table-wrap">
+    <table class="sa-table">
+      <thead>
+        <tr>
+          <th>Learner</th>
+          <th>Admission</th>
+          <th>Total charged</th>
+          <th>Payment total</th>
+          <th>Balance</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for student in students %}
+        <tr data-student-row="{{ student.id }}">
+          <td>
+            <p class="sa-table-primary">{{ student.display_name }}</p>
+            <p class="sa-table-secondary">{{ student.get_academic_level_display }}{% if student.class_group %} · {{ student.class_group }}{% endif %}</p>
+          </td>
+          <td>{{ student.admission_number|default:student.assessment_number }}</td>
+          <td data-field="charged">KES {{ student.total_charged|floatformat:2 }}</td>
+          <td class="is-brand" data-field="paid">KES {{ student.total_paid|floatformat:2 }}</td>
+          <td data-field="balance">KES {{ student.ledger_balance|floatformat:2 }}</td>
+          <td>
+            <div class="sa-account-actions-inline">
+              <button
+                type="button"
+                class="btn-primary btn-compact"
+                data-open-payment-modal
+                data-student-id="{{ student.id }}"
+                {% if not payment_options %}disabled title="No payment methods enabled on this account"{% endif %}
+              >Update fees</button>
+              <a href="{% url 'billing:student_ledger' student.id %}" class="btn-ghost btn-compact">Ledger</a>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="sa-empty">
+    <div class="sa-empty-mark" aria-hidden="true">S</div>
+    <h4 class="sa-empty-title">No learners found</h4>
+    <p class="sa-empty-copy">
+      {% if q %}No learners matched “{{ q }}” in {{ level.name }}.{% else %}There are no active learners in {{ level.name }}.{% endif %}
+    </p>
+  </div>
+  {% endif %}
+</section>
+
+<dialog id="payment-modal" class="account-modal">
+  <form method="post" action="{% url 'billing:student_fees_level_students' account.id level.id %}{% if q %}?q={{ q|urlencode }}{% endif %}" class="account-modal-card" id="payment-form" novalidate autocomplete="off">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="record_fee_payment">
+    <input type="hidden" name="student_id" id="payment-student-id" value="">
+
+    <div class="account-modal-head">
+      <div>
+        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-400">Update fees</p>
+        <h3 class="font-display text-2xl font-semibold text-ink-950" id="payment-modal-title">Learner payment</h3>
+        <p class="mt-1 text-sm text-ink-500" id="payment-modal-meta">Outstanding balance will show here</p>
+      </div>
+      <button type="button" class="account-modal-close" data-close-payment-modal aria-label="Close">×</button>
+    </div>
+
+    <div class="account-modal-body space-y-4">
+      {% if payment_options %}
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Amount (KES) *</span>
+        <input type="number" name="amount" id="payment-amount" required min="0.01" step="0.01" value="" class="field-input" placeholder="0.00" autocomplete="off">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Payment method *</span>
+        <select name="method" id="payment-method" required class="field-input">
+          <option value="">Select method</option>
+          {% for opt in payment_options %}
+          <option value="{{ opt.value }}"{% if opt.value == "MPESA_STK" %} selected{% elif not mpesa_stk_ready and forloop.first %} selected{% endif %}>{{ opt.label }}</option>
+          {% endfor %}
+        </select>
+        {% if not mpesa_enabled %}
+        <p class="mt-1.5 text-xs text-ink-400">STK Push appears here once M-Pesa is enabled and fully configured in System settings.</p>
+        {% elif not mpesa_stk_ready %}
+        <p class="mt-1.5 text-xs text-amber-800">
+          STK Push is hidden until Daraja setup is complete
+          {% if stk_missing_fields %}(missing: {{ stk_missing_fields|join:", " }}){% endif %}.
+          <a href="{% url 'billing:payments_settings' %}" class="font-semibold text-brand">Open Payments settings</a>
+        </p>
+        {% endif %}
+      </label>
+
+      <label class="block" id="payment-reference-wrap"{% if mpesa_stk_ready %} hidden{% endif %}>
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Reference code *</span>
+        <input type="text" name="reference" id="payment-reference" maxlength="120" value="" class="field-input" data-uppercase placeholder="Receipt / M-Pesa / cheque number" autocomplete="off"{% if mpesa_stk_ready %} disabled{% endif %}>
+      </label>
+
+      <label class="block" id="payment-phone-wrap"{% if not mpesa_stk_ready %} hidden{% endif %}>
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">M-Pesa phone *</span>
+        <input type="tel" name="phone" id="payment-phone" maxlength="20" value="" class="field-input" placeholder="07XXXXXXXX" autocomplete="off"{% if mpesa_stk_ready %} required{% endif %}>
+        <p class="mt-1.5 text-xs text-ink-400">An STK prompt is sent to this number for the amount above. The M-Pesa receipt is recorded automatically.</p>
+      </label>
+
+      <label class="block" id="payment-notes-wrap">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Notes</span>
+        <input type="text" name="notes" id="payment-notes" maxlength="500" value="" class="field-input" placeholder="Optional" autocomplete="off">
+      </label>
+
+      <div id="payment-stk-status" class="rounded-2xl border border-ink-950/10 bg-ink-50/70 px-4 py-3 text-sm text-ink-600" hidden>
+        <p class="font-semibold text-ink-900" id="payment-stk-status-title">Waiting for M-Pesa…</p>
+        <p class="mt-1" id="payment-stk-status-copy">Ask the payer to enter their PIN on the phone.</p>
+        <p class="mt-2 font-mono text-xs text-ink-500" id="payment-stk-status-ref"></p>
+      </div>
+
+      {% if mpesa_enabled and not mpesa_stk_ready %}
+      <p class="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        M-Pesa is enabled but STK cannot prompt yet.
+        Missing: <strong>{{ stk_missing_fields|join:", " }}</strong>.
+        Add them under
+        <a href="{% url 'billing:payments_settings' %}" class="font-semibold text-brand">System settings → Payments</a>.
+      </p>
+      {% endif %}
+      {% else %}
+      <p class="rounded-lg border border-dashed border-ink-200 px-3 py-3 text-sm text-ink-500">
+        This account has no payment methods enabled.
+        <a href="{% url 'billing:school_account_detail' account.id %}" class="font-semibold text-brand">Edit account</a>
+        to allow Cash, M-Pesa, Cheque, or Bank.
+      </p>
+      {% endif %}
+    </div>
+
+    <div class="account-modal-actions">
+      <button type="button" class="btn-ghost" data-close-payment-modal>Cancel</button>
+      {% if payment_options %}
+      <button type="submit" class="btn-primary" id="payment-submit">Record payment</button>
+      {% endif %}
+    </div>
+  </form>
+</dialog>
+
+<div id="stk-loading-overlay" class="stk-loading-overlay" hidden aria-live="polite" aria-busy="true">
+  <div class="stk-loading-card">
+    <div class="stk-loading-spinner" id="stk-loading-spinner" aria-hidden="true"></div>
+    <p class="stk-loading-kicker">M-Pesa STK Push</p>
+    <h3 class="stk-loading-title" id="stk-loading-title">Waiting for payment…</h3>
+    <p class="stk-loading-copy" id="stk-loading-copy">
+      Enter the M-Pesa PIN on the phone. This page will update when Safaricom confirms.
+    </p>
+    <p class="stk-loading-ref" id="stk-loading-ref"></p>
+    <div class="stk-loading-actions">
+      <button type="button" class="btn-primary btn-compact" id="stk-loading-retry" hidden>Try again</button>
+      <button type="button" class="btn-ghost btn-compact" id="stk-loading-cancel">Cancel waiting</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var modal = document.getElementById("payment-modal");
+  if (!modal) return;
+
+  var students = {{ students_json|safe }};
+  var methodMeta = {{ payment_options_json|safe }};
+  var stkInitiateUrl = "{{ stk_initiate_url|escapejs }}";
+  var stkStatusTemplate = "{{ stk_status_url_template|escapejs }}";
+
+  var form = document.getElementById("payment-form");
+  var studentIdInput = document.getElementById("payment-student-id");
+  var amountInput = document.getElementById("payment-amount");
+  var methodSelect = document.getElementById("payment-method");
+  var phoneWrap = document.getElementById("payment-phone-wrap");
+  var phoneInput = document.getElementById("payment-phone");
+  var referenceWrap = document.getElementById("payment-reference-wrap");
+  var referenceInput = document.getElementById("payment-reference");
+  var notesWrap = document.getElementById("payment-notes-wrap");
+  var notesInput = document.getElementById("payment-notes");
+  var titleEl = document.getElementById("payment-modal-title");
+  var metaEl = document.getElementById("payment-modal-meta");
+  var submitBtn = document.getElementById("payment-submit");
+  var stkStatus = document.getElementById("payment-stk-status");
+  var stkStatusTitle = document.getElementById("payment-stk-status-title");
+  var stkStatusCopy = document.getElementById("payment-stk-status-copy");
+  var stkStatusRef = document.getElementById("payment-stk-status-ref");
+  var loadingOverlay = document.getElementById("stk-loading-overlay");
+  var loadingSpinner = document.getElementById("stk-loading-spinner");
+  var loadingTitle = document.getElementById("stk-loading-title");
+  var loadingCopy = document.getElementById("stk-loading-copy");
+  var loadingRef = document.getElementById("stk-loading-ref");
+  var loadingCancel = document.getElementById("stk-loading-cancel");
+  var loadingRetry = document.getElementById("stk-loading-retry");
+  var csrfInput = form ? form.querySelector("input[name=csrfmiddlewaretoken]") : null;
+  var readyAt = 0;
+  var pollTimer = null;
+  var pollCount = 0;
+  var stkBusy = false;
+  var overlayMode = "idle";
+
+  function formatKes(amount) {
+    var n = Number(amount);
+    if (!isFinite(n)) n = 0;
+    return "KES " + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function csrfToken() {
+    return csrfInput ? csrfInput.value : "";
+  }
+
+  function statusUrl(stkId) {
+    return stkStatusTemplate.replace("/stk/0/", "/stk/" + stkId + "/");
+  }
+
+  function resetLoadingOverlayState() {
+    overlayMode = "idle";
+    if (loadingOverlay) {
+      loadingOverlay.classList.remove("is-success", "is-failure");
+      loadingOverlay.setAttribute("aria-busy", "true");
+    }
+    if (loadingSpinner) loadingSpinner.hidden = false;
+    if (loadingRetry) loadingRetry.hidden = true;
+    if (loadingCancel) {
+      loadingCancel.hidden = false;
+      loadingCancel.textContent = "Cancel waiting";
+    }
+  }
+
+  function setLoadingOverlay(visible, title, copy, refText) {
+    if (!loadingOverlay) return;
+    if (visible) {
+      overlayMode = "waiting";
+      loadingOverlay.classList.remove("is-failure");
+      loadingOverlay.hidden = false;
+      loadingOverlay.setAttribute("aria-busy", "true");
+      if (loadingSpinner) loadingSpinner.hidden = false;
+      if (loadingRetry) loadingRetry.hidden = true;
+      if (loadingCancel) {
+        loadingCancel.hidden = false;
+        loadingCancel.textContent = "Cancel waiting";
+      }
+    } else {
+      resetLoadingOverlayState();
+      loadingOverlay.hidden = true;
+    }
+    document.body.classList.toggle("is-stk-waiting", !!visible);
+    if (loadingTitle && title) loadingTitle.textContent = title;
+    if (loadingCopy && copy) loadingCopy.textContent = copy;
+    if (loadingRef) loadingRef.textContent = refText || "";
+  }
+
+  function setStkStatus(visible, title, copy, refText) {
+    if (!stkStatus) return;
+    stkStatus.hidden = !visible;
+    if (stkStatusTitle) stkStatusTitle.textContent = title || "";
+    if (stkStatusCopy) stkStatusCopy.textContent = copy || "";
+    if (stkStatusRef) stkStatusRef.textContent = refText || "";
+  }
+
+  function showWaitingOverlay(title, copy, refText) {
+    setStkStatus(true, title, copy, refText);
+    setLoadingOverlay(true, title, copy, refText);
+  }
+
+  function nextPollDelayMs() {
+    // Fast early polls catch cancel/wrong-PIN and callbacks quickly; then back off.
+    if (pollCount <= 8) return 1500;
+    if (pollCount <= 20) return 2500;
+    return 4000;
+  }
+
+  function stopPolling() {
+    if (pollTimer) {
+      window.clearTimeout(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  function schedulePoll(stkId, delayMs) {
+    stopPolling();
+    pollTimer = window.setTimeout(function () { pollStk(stkId); }, delayMs);
+  }
+
+  function setFormLocked(locked) {
+    [amountInput, methodSelect, phoneInput, notesInput].forEach(function (el) {
+      if (el) el.disabled = !!locked;
+    });
+    if (referenceInput) {
+      var meta = methodSelect ? methodMeta[methodSelect.value] : null;
+      var needsReference = !!(meta && meta.input === "reference");
+      referenceInput.disabled = !!locked || !needsReference;
+      if (!needsReference) referenceInput.value = "";
+    }
+    if (submitBtn) submitBtn.disabled = !!locked;
+  }
+
+  function cancelStkWaiting() {
+    stopPolling();
+    stkBusy = false;
+    setFormLocked(false);
+    resetLoadingOverlayState();
+    setLoadingOverlay(false);
+    setStkStatus(
+      true,
+      "Waiting cancelled",
+      "You stopped watching this prompt. If the payer already entered their PIN, refresh the page to see the updated balance.",
+      ""
+    );
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Send STK prompt";
+    }
+  }
+
+  function dismissFailureOverlay() {
+    stopPolling();
+    stkBusy = false;
+    setFormLocked(false);
+    resetLoadingOverlayState();
+    setLoadingOverlay(false);
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Send STK prompt";
+    }
+  }
+
+  function showFailureOverlay(stk) {
+    stopPolling();
+    stkBusy = false;
+    setFormLocked(false);
+    overlayMode = "failure";
+    if (loadingOverlay) {
+      loadingOverlay.classList.remove("is-success");
+      loadingOverlay.classList.add("is-failure");
+      loadingOverlay.hidden = false;
+      loadingOverlay.setAttribute("aria-busy", "false");
+    }
+    document.body.classList.add("is-stk-waiting");
+    if (loadingSpinner) loadingSpinner.hidden = true;
+    var cancelled = !!(stk && (stk.cancelled || stk.status === "CANCELLED"));
+    var title = cancelled ? "Payment cancelled" : "Payment failed";
+    var message = (stk && (stk.failure_message || stk.result_desc)) || "The STK prompt was not completed.";
+    if (loadingTitle) loadingTitle.textContent = title;
+    if (loadingCopy) loadingCopy.textContent = message;
+    if (loadingRef) {
+      loadingRef.textContent = stk && stk.checkout_request_id ? "Checkout: " + stk.checkout_request_id : "";
+    }
+    if (loadingRetry) loadingRetry.hidden = false;
+    if (loadingCancel) {
+      loadingCancel.hidden = false;
+      loadingCancel.textContent = "Close";
+    }
+    setStkStatus(true, title, message, loadingRef ? loadingRef.textContent : "");
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Send STK prompt";
+    }
+  }
+
+  if (loadingCancel) {
+    loadingCancel.addEventListener("click", function (event) {
+      event.preventDefault();
+      if (overlayMode === "failure") {
+        dismissFailureOverlay();
+        return;
+      }
+      cancelStkWaiting();
+    });
+  }
+
+  if (loadingRetry) {
+    loadingRetry.addEventListener("click", function (event) {
+      event.preventDefault();
+      dismissFailureOverlay();
+      startStkPush();
+    });
+  }
+
+  function isStkMethod() {
+    return methodSelect && methodSelect.value === "MPESA_STK";
+  }
+
+  function syncMethodFields() {
+    if (!methodSelect) return;
+    var meta = methodMeta[methodSelect.value] || null;
+    var needsPhone = !!(meta && meta.input === "phone");
+    var needsReference = !!(meta && meta.input === "reference");
+
+    if (phoneWrap) phoneWrap.hidden = !needsPhone;
+    if (referenceWrap) referenceWrap.hidden = !needsReference;
+    if (notesWrap) notesWrap.hidden = !!needsPhone && stkBusy;
+
+    if (phoneInput) {
+      phoneInput.required = needsPhone;
+      phoneInput.disabled = !needsPhone && stkBusy;
+    }
+    if (referenceInput) {
+      referenceInput.required = needsReference;
+      referenceInput.disabled = !needsReference;
+      if (!needsReference) referenceInput.value = "";
+    }
+    if (submitBtn) {
+      submitBtn.textContent = needsPhone ? "Send STK prompt" : "Record payment";
+    }
+    if (!needsPhone) {
+      stopPolling();
+      setStkStatus(false);
+      setFormLocked(false);
+      stkBusy = false;
+    }
+  }
+
+  function fillStudent(studentId, preserveForm) {
+    var student = students[String(studentId)] || null;
+    if (studentIdInput) studentIdInput.value = student ? String(student.id) : "";
+    if (titleEl) titleEl.textContent = student ? student.name : "Learner payment";
+    if (metaEl) {
+      metaEl.textContent = student
+        ? ((student.admission || "No admission") + " · Balance " + formatKes(student.balance))
+        : "Outstanding balance will show here";
+    }
+    if (!preserveForm) {
+      stopPolling();
+      stkBusy = false;
+      setFormLocked(false);
+      setStkStatus(false);
+      if (amountInput) amountInput.value = student && Number(student.balance) > 0 ? student.balance : "";
+      if (phoneInput) phoneInput.value = student && student.phone ? student.phone : "";
+      if (referenceInput) referenceInput.value = "";
+      if (notesInput) notesInput.value = "";
+      if (methodSelect && methodSelect.options.length > 1) {
+        var stkOption = methodSelect.querySelector('option[value="MPESA_STK"]');
+        if (stkOption) {
+          methodSelect.value = "MPESA_STK";
+        } else {
+          methodSelect.selectedIndex = 1;
+        }
+      }
+    }
+    syncMethodFields();
+  }
+
+  function openModal(studentId, preserveForm) {
+    fillStudent(studentId, !!preserveForm);
+    readyAt = Date.now() + 400;
+    window.setTimeout(function () {
+      try {
+        if (typeof modal.showModal === "function") {
+          if (!modal.open) modal.showModal();
+        } else {
+          modal.setAttribute("open", "open");
+        }
+      } catch (err) {
+        modal.setAttribute("open", "open");
+      }
+    }, 0);
+  }
+
+  function closeModal() {
+    if (Date.now() < readyAt) return;
+    if (stkBusy) return;
+    stopPolling();
+    setLoadingOverlay(false);
+    try {
+      if (typeof modal.close === "function" && modal.open) modal.close();
+      else modal.removeAttribute("open");
+    } catch (err) {
+      modal.removeAttribute("open");
+    }
+  }
+
+  function handleStkSuccess(stk) {
+    stkBusy = false;
+    setFormLocked(false);
+    var receipt = (stk.mpesa_receipt || "").trim();
+    if (!receipt) {
+      // Keep waiting until the real M-Pesa SMS reference arrives.
+      stkBusy = true;
+      showWaitingOverlay(
+        "Fetching M-Pesa receipt…",
+        "Payment is confirmed. Waiting for the M-Pesa message reference code.",
+        stk.checkout_request_id ? "Checkout: " + stk.checkout_request_id : ""
+      );
+      if (stk.id) {
+        schedulePoll(stk.id, nextPollDelayMs());
+      }
+      return;
+    }
+    applyStudentFinance(stk);
+    setLoadingOverlay(
+      true,
+      "Payment successful",
+      "M-Pesa confirmed. Fees and balance have been updated.",
+      "M-Pesa receipt: " + receipt + (stk.student_balance != null ? " · New balance " + formatKes(stk.student_balance) : "")
+    );
+    if (loadingOverlay) loadingOverlay.classList.add("is-success");
+    setStkStatus(
+      true,
+      "Payment successful",
+      "M-Pesa confirmed. Fees and balance have been updated.",
+      "M-Pesa receipt: " + receipt + (stk.student_balance != null ? " · New balance " + formatKes(stk.student_balance) : "")
+    );
+    if (metaEl) {
+      metaEl.textContent = "Balance " + formatKes(stk.student_balance || 0);
+    }
+    if (students[String(stk.student_id)]) {
+      students[String(stk.student_id)].balance = stk.student_balance || students[String(stk.student_id)].balance;
+    }
+    if (submitBtn) {
+      submitBtn.textContent = "Done";
+      submitBtn.disabled = false;
+      submitBtn.onclick = function (event) {
+        event.preventDefault();
+        window.location.reload();
+      };
+    }
+    window.setTimeout(function () {
+      window.location.reload();
+    }, 1500);
+  }
+
+  function applyStudentFinance(stk) {
+    var row = document.querySelector('[data-student-row="' + stk.student_id + '"]');
+    if (!row) return;
+    var chargedCell = row.querySelector('[data-field="charged"]');
+    var paidCell = row.querySelector('[data-field="paid"]');
+    var balanceCell = row.querySelector('[data-field="balance"]');
+    if (chargedCell && stk.student_charged != null) chargedCell.textContent = formatKes(stk.student_charged);
+    if (paidCell && stk.student_paid != null) paidCell.textContent = formatKes(stk.student_paid);
+    if (balanceCell && stk.student_balance != null) balanceCell.textContent = formatKes(stk.student_balance);
+
+    // Recompute page totals from visible rows.
+    var charged = 0;
+    var paid = 0;
+    document.querySelectorAll("[data-student-row]").forEach(function (tr) {
+      var c = tr.querySelector('[data-field="charged"]');
+      var p = tr.querySelector('[data-field="paid"]');
+      if (c) charged += parseKes(c.textContent);
+      if (p) paid += parseKes(p.textContent);
+    });
+    var chargedStat = document.querySelector('[data-stat="charged"]');
+    var paidStat = document.querySelector('[data-stat="paid"]');
+    var balanceStat = document.querySelector('[data-stat="balance"]');
+    if (chargedStat) chargedStat.textContent = formatKes(charged);
+    if (paidStat) paidStat.textContent = formatKes(paid);
+    if (balanceStat) balanceStat.textContent = formatKes(charged - paid);
+  }
+
+  function parseKes(text) {
+    var n = Number(String(text || "").replace(/[^\d.-]/g, ""));
+    return isFinite(n) ? n : 0;
+  }
+
+  function handleStkFailure(stk) {
+    showFailureOverlay(stk || {});
+  }
+
+  function pollStk(stkId) {
+    stopPolling();
+    pollCount += 1;
+    if (pollCount > 60) {
+      stkBusy = false;
+      setFormLocked(false);
+      if (loadingOverlay) loadingOverlay.classList.remove("is-success");
+      setLoadingOverlay(false);
+      setStkStatus(
+        true,
+        "Still waiting",
+        "No confirmation yet. The payer may still complete the prompt. You can close and check again shortly.",
+        ""
+      );
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Send STK prompt";
+      }
+      return;
+    }
+
+    fetch(statusUrl(stkId), {
+      method: "GET",
+      headers: { "Accept": "application/json", "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin"
+    })
+      .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+      .then(function (result) {
+        var data = result.data || {};
+        var stk = data.stk || {};
+        if (!result.ok || data.ok === false) {
+          throw new Error(data.error || "Could not check STK status.");
+        }
+        if (data.success) {
+          handleStkSuccess(stk);
+          return;
+        }
+        if (data.failed || (data.done && !data.success)) {
+          handleStkFailure(stk);
+          return;
+        }
+        if (stk.awaiting_receipt) {
+          showWaitingOverlay(
+            "Fetching M-Pesa receipt…",
+            stk.result_desc || "Payment accepted on the phone. Retrieving the M-Pesa message reference code.",
+            stk.checkout_request_id ? "Checkout: " + stk.checkout_request_id : ""
+          );
+        } else {
+          showWaitingOverlay(
+            "Waiting for M-Pesa confirmation…",
+            stk.result_desc || "Prompt sent. Enter the M-Pesa PIN on the phone. Keep this window open.",
+            stk.checkout_request_id ? "Checkout: " + stk.checkout_request_id : ""
+          );
+        }
+        schedulePoll(stkId, nextPollDelayMs());
+      })
+      .catch(function (err) {
+        showWaitingOverlay(
+          "Waiting for M-Pesa confirmation…",
+          "Still checking. Enter the M-Pesa PIN on the phone if you have not already.",
+          ""
+        );
+        schedulePoll(stkId, nextPollDelayMs());
+      });
+  }
+
+  function startStkPush() {
+    if (stkBusy) return;
+    var amount = (amountInput && amountInput.value || "").trim();
+    var phone = (phoneInput && phoneInput.value || "").trim();
+    var studentId = studentIdInput ? studentIdInput.value : "";
+    if (!studentId) {
+      setStkStatus(true, "Missing learner", "Select a learner first.", "");
+      return;
+    }
+    if (!amount || Number(amount) <= 0) {
+      setStkStatus(true, "Invalid amount", "Enter an amount greater than zero.", "");
+      return;
+    }
+    if (!phone) {
+      setStkStatus(true, "Phone required", "Enter the M-Pesa phone number to prompt.", "");
+      return;
+    }
+
+    stkBusy = true;
+    pollCount = 0;
+    setFormLocked(true);
+    resetLoadingOverlayState();
+    if (loadingOverlay) loadingOverlay.classList.remove("is-success");
+    showWaitingOverlay("Sending STK prompt…", "Contacting Safaricom Daraja. Please wait.", "");
+    if (submitBtn) submitBtn.textContent = "Sending…";
+
+    var body = new FormData();
+    body.append("student_id", studentId);
+    body.append("amount", amount);
+    body.append("phone", phone);
+    body.append("csrfmiddlewaretoken", csrfToken());
+
+    fetch(stkInitiateUrl, {
+      method: "POST",
+      body: body,
+      headers: { "X-Requested-With": "XMLHttpRequest", "X-CSRFToken": csrfToken() },
+      credentials: "same-origin"
+    })
+      .then(function (res) {
+        return res.text().then(function (text) {
+          var data = {};
+          try { data = text ? JSON.parse(text) : {}; } catch (err) {
+            data = { ok: false, error: text || ("HTTP " + res.status) };
+          }
+          return { ok: res.ok, data: data };
+        });
+      })
+      .then(function (result) {
+        var data = result.data || {};
+        if (!result.ok || !data.ok) {
+          throw new Error(data.error || "Could not send STK prompt.");
+        }
+        var stk = data.stk || {};
+        setStkStatus(
+          true,
+          "STK prompt sent",
+          data.message || "Ask the payer to enter their M-Pesa PIN.",
+          stk.checkout_request_id ? "Checkout: " + stk.checkout_request_id : ""
+        );
+        showWaitingOverlay(
+          "Waiting for M-Pesa confirmation…",
+          data.message || "Enter the M-Pesa PIN on the phone. This page will update when payment succeeds.",
+          stk.checkout_request_id ? "Checkout: " + stk.checkout_request_id : ""
+        );
+        if (submitBtn) submitBtn.textContent = "Waiting…";
+        schedulePoll(stk.id, 1200);
+      })
+      .catch(function (err) {
+        stkBusy = false;
+        setFormLocked(false);
+        if (loadingOverlay) loadingOverlay.classList.remove("is-success");
+        setLoadingOverlay(false);
+        setStkStatus(true, "STK prompt failed", err.message || "Try again.", "");
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Send STK prompt";
+        }
+      });
+  }
+
+  if (form) {
+    form.addEventListener("submit", function (event) {
+      if (isStkMethod()) {
+        event.preventDefault();
+        startStkPush();
+      }
+    });
+  }
+
+  document.querySelectorAll("[data-open-payment-modal]").forEach(function (btn) {
+    btn.addEventListener("click", function (event) {
+      event.preventDefault();
+      if (btn.disabled) return;
+      openModal(btn.getAttribute("data-student-id"), false);
+    });
+  });
+  document.querySelectorAll("[data-close-payment-modal]").forEach(function (btn) {
+    btn.addEventListener("click", function (event) {
+      event.preventDefault();
+      if (stkBusy) {
+        if (overlayMode === "failure") {
+          dismissFailureOverlay();
+        } else if (!window.confirm("An STK prompt is still pending. Stop waiting?")) {
+          return;
+        } else {
+          cancelStkWaiting();
+        }
+      }
+      readyAt = 0;
+      closeModal();
+    });
+  });
+  modal.addEventListener("click", function (event) {
+    if (event.target === modal) closeModal();
+  });
+  if (methodSelect) methodSelect.addEventListener("change", syncMethodFields);
+
+  syncMethodFields();
+})();
+</script>
+{% endblock %}

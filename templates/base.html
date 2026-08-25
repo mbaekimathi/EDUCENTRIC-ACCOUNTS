@@ -1,0 +1,61 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" class="theme-accounts">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="{{ brand.primary_color }}">
+  <title>{% block title %}{{ brand.school_display }} Accounts{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600;8..60,700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              DEFAULT: '{{ brand.primary_color }}',
+              soft: 'color-mix(in srgb, {{ brand.primary_color }} 12%, white)',
+              deep: 'color-mix(in srgb, {{ brand.primary_color }} 78%, black)',
+            },
+            accent: '{{ brand.school_accent }}',
+            ink: {
+              950: '#0f1419',
+              800: '#1c2430',
+              600: '#4a5568',
+              500: '#5f6b7a',
+              400: '#8b95a5',
+              300: '#a8b0bc',
+              200: '#c5cbd3',
+            }
+          },
+          fontFamily: {
+            sans: ['Manrope', 'system-ui', 'sans-serif'],
+            display: ['"Source Serif 4"', 'Georgia', 'serif'],
+          },
+          boxShadow: {
+            panel: '0 24px 60px -28px rgba(15, 20, 25, 0.45)',
+            glow: '0 18px 50px -24px rgba(15, 107, 76, 0.45)',
+          }
+        }
+      }
+    }
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+  <style>:root { --brand: {{ brand.primary_color }}; --accent: {{ brand.school_accent }}; }</style>
+  <link rel="stylesheet" href="{% static 'css/accounts.css' %}?v=20260823i">
+  {% block extra_head %}{% endblock %}
+</head>
+<body class="theme-accounts min-h-dvh font-sans text-ink-950 antialiased bg-canvas">
+  {% if messages %}
+  <div class="fixed top-4 inset-x-4 z-[60] mx-auto max-w-lg space-y-2 pointer-events-none" role="status">
+    {% for message in messages %}
+    <div class="pointer-events-auto rounded-xl border border-white/40 bg-white/95 px-4 py-3 text-sm shadow-panel backdrop-blur">{{ message }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% block body %}{% endblock %}
+</body>
+</html>

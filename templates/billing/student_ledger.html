@@ -1,0 +1,69 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}{{ student.display_name }} · Ledger{% endblock %}
+{% block header_title %}{{ student.display_name }}{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:student_search' %}" class="btn-ghost">All learners</a>
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner">
+    <div class="sa-hero__banner">
+      <p class="sa-hero-kicker">Learner account</p>
+      <h2 class="sa-hero-title">{{ student.display_name }}</h2>
+      <p class="sa-hero-copy">
+        {{ student.admission_number|default:student.assessment_number }}
+        · {{ student.get_academic_level_display }}
+        {% if student.class_group %}· {{ student.class_group }}{% endif %}
+      </p>
+    </div>
+    <div class="sa-hero__body flex flex-wrap items-end justify-between gap-4">
+      <p class="text-sm text-ink-600">Current balance from Accounts tables</p>
+      <div class="sa-hero-balance">
+        <p class="sa-hero-balance-label">Balance</p>
+        <p class="sa-hero-balance-value">KES {{ balance|floatformat:2 }}</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid gap-5 lg:grid-cols-2">
+    <article class="sa-list-panel">
+      <div class="sa-list-panel-head">
+        <h3 class="sa-list-panel-title">Charges</h3>
+      </div>
+      <ul>
+        {% for c in charges %}
+        <li class="text-sm">
+          <div class="flex justify-between gap-3">
+            <span class="font-semibold">{{ c.title }}</span>
+            <span>{{ c.amount }}</span>
+          </div>
+          <p class="text-ink-400">{{ c.category.code }} · {{ c.get_status_display }} · paid {{ c.amount_paid }}</p>
+        </li>
+        {% empty %}
+        <li class="py-6 text-ink-400">No charges posted for this learner yet.</li>
+        {% endfor %}
+      </ul>
+    </article>
+
+    <article class="sa-list-panel">
+      <div class="sa-list-panel-head">
+        <h3 class="sa-list-panel-title">Payments</h3>
+      </div>
+      <ul>
+        {% for p in payments %}
+        <li class="flex justify-between gap-3 text-sm">
+          <div>
+            <p class="font-semibold">{{ p.get_method_display }}{% if p.reference %} · {{ p.reference }}{% endif %}</p>
+            <p class="text-ink-400">{{ p.received_at|date:"d M Y H:i" }}</p>
+          </div>
+          <span class="font-semibold text-brand">{{ p.amount }}</span>
+        </li>
+        {% empty %}
+        <li class="py-6 text-ink-400">No payments yet.</li>
+        {% endfor %}
+      </ul>
+    </article>
+  </section>
+{% endblock %}

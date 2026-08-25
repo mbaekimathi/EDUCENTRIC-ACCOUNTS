@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block title %}Delivery receipt {{ movement.reference_code }} · Store{% endblock %}
+
+{% block body %}
+<div class="min-h-dvh bg-canvas px-4 py-6 sm:px-6 lg:px-8">
+  <div class="mx-auto max-w-3xl">
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-3 print:hidden">
+      <a href="{% url 'billing:store_stock_in_out' %}" class="btn-ghost">← Stock in &amp; out</a>
+      <div class="flex flex-wrap gap-2">
+        <a href="{% url 'billing:store_stock_in_out' %}" class="btn-ghost">Done</a>
+        <button type="button" class="btn-primary" onclick="window.print()">Print receipt</button>
+      </div>
+    </div>
+
+    <article class="overflow-hidden rounded-[1.5rem] border border-ink-950/10 bg-white shadow-panel print:rounded-none print:border print:shadow-none">
+      <header class="border-b border-ink-950/8 bg-brand-soft/40 px-6 py-5 sm:px-8">
+        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-400">Supplier delivery receipt</p>
+        <h1 class="mt-1 font-display text-3xl font-semibold text-ink-950">{{ brand.school_display }}</h1>
+        <p class="mt-1 text-sm text-ink-600">Take this receipt to Accounts as proof of delivery.</p>
+      </header>
+
+      <div class="space-y-6 px-6 py-6 sm:px-8 sm:py-8">
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+            <p class="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">Receipt no.</p>
+            <p class="mt-1 font-mono text-lg font-semibold text-ink-950">{{ movement.reference_code }}</p>
+          </div>
+          <div>
+            <p class="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">Date &amp; time</p>
+            <p class="mt-1 text-sm font-semibold text-ink-950">{{ movement.created_at|date:"d M Y, H:i" }}</p>
+          </div>
+        </div>
+
+        <section class="rounded-2xl border border-ink-950/8 bg-ink-950/[0.02] p-4 sm:p-5">
+          <h2 class="text-sm font-bold uppercase tracking-[0.12em] text-ink-400">Supplier</h2>
+          <dl class="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <dt class="text-xs text-ink-400">Name</dt>
+              <dd class="mt-0.5 text-sm font-semibold text-ink-950">{{ movement.supplier.name }}</dd>
+            </div>
+            <div>
+              <dt class="text-xs text-ink-400">Phone</dt>
+              <dd class="mt-0.5 text-sm font-semibold text-ink-950">{{ movement.supplier.phone_number }}</dd>
+            </div>
+            <div>
+              <dt class="text-xs text-ink-400">Payment status</dt>
+              <dd class="mt-0.5 text-sm font-semibold text-ink-950">{{ movement.get_payment_status_display|default:"—" }}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section>
+          <h2 class="text-sm font-bold uppercase tracking-[0.12em] text-ink-400">Delivered item</h2>
+          <div class="mt-3 overflow-hidden rounded-2xl border border-ink-950/8">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-ink-950/[0.03] text-[11px] uppercase tracking-[0.12em] text-ink-400">
+                <tr>
+                  <th class="px-4 py-3 font-semibold">Item</th>
+                  <th class="px-4 py-3 font-semibold">Category</th>
+                  <th class="px-4 py-3 font-semibold">Station</th>
+                  <th class="px-4 py-3 font-semibold">Qty</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="border-t border-ink-950/8">
+                  <td class="px-4 py-3">
+                    <p class="font-semibold text-ink-950">{{ movement.item.name }}</p>
+                    <p class="mt-0.5 font-mono text-xs text-ink-400">{{ movement.item.reference_code }}</p>
+                  </td>
+                  <td class="px-4 py-3 text-ink-700">{{ movement.item.expense_category.name }}</td>
+                  <td class="px-4 py-3 text-ink-700">{{ movement.item.department_station.name }}</td>
+                  <td class="px-4 py-3 font-semibold text-ink-950">
+                    {{ movement.quantity|floatformat:"-2" }} {{ movement.item.get_measure_display }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          {% if movement.notes %}
+          <p class="mt-3 text-sm text-ink-600"><span class="font-semibold text-ink-800">Notes:</span> {{ movement.notes }}</p>
+          {% endif %}
+        </section>
+
+        <section class="grid gap-8 pt-4 sm:grid-cols-2">
+          <div>
+            <p class="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">Received by (Store)</p>
+            <p class="mt-2 text-sm font-semibold text-ink-950">
+              {{ movement.created_by.get_full_name|default:movement.created_by.staff_code|default:"—" }}
+            </p>
+            <div class="mt-8 border-b border-ink-950/20"></div>
+            <p class="mt-2 text-xs text-ink-400">Signature</p>
+          </div>
+          <div>
+            <p class="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">Delivered by (Supplier)</p>
+            <p class="mt-2 text-sm font-semibold text-ink-950">{{ movement.supplier.name }}</p>
+            <div class="mt-8 border-b border-ink-950/20"></div>
+            <p class="mt-2 text-xs text-ink-400">Signature</p>
+          </div>
+        </section>
+
+        <p class="border-t border-ink-950/8 pt-4 text-xs text-ink-400">
+          Present this receipt at the Accounts office for payment processing where applicable.
+        </p>
+      </div>
+    </article>
+  </div>
+</div>
+
+<style>
+  @media print {
+    body {
+      background: #fff !important;
+    }
+    .print\:hidden {
+      display: none !important;
+    }
+  }
+</style>
+{% endblock %}

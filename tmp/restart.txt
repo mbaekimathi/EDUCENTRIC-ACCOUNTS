@@ -1,0 +1,1 @@
+# Passenger reload trigger — on the server run: touch tmp/restart.txt

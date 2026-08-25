@@ -1,0 +1,53 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}Learners · Accounts{% endblock %}
+{% block header_kicker %}Directory{% endblock %}
+{% block header_title %}Learners{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:dashboard' %}" class="btn-ghost">Dashboard</a>
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">Directory</p>
+    <h2 class="sa-hero-title">Find a learner</h2>
+    <p class="sa-hero-copy">Live read from shared admissions — balances from Accounts tables.</p>
+  </div>
+</section>
+
+<form method="get" class="mb-6 max-w-xl">
+  <label class="block">
+    <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Search</span>
+    <input
+      type="search"
+      name="q"
+      value="{{ q }}"
+      placeholder="Name or admission number…"
+      class="field-input"
+      autofocus
+    >
+  </label>
+</form>
+
+<div class="sa-list-panel">
+  <ul>
+    {% for s in students %}
+    <li class="is-link-row">
+      <a href="{% url 'billing:student_ledger' s.id %}">
+        <div class="min-w-0">
+          <p class="truncate font-semibold">{{ s.display_name }}</p>
+          <p class="truncate text-xs text-ink-400">
+            {{ s.admission_number|default:"—" }} · {{ s.get_academic_level_display }}{% if s.class_group %} · {{ s.class_group }}{% endif %}
+          </p>
+        </div>
+        <p class="shrink-0 text-sm font-semibold">KES {{ s.ledger_balance|floatformat:2 }}</p>
+      </a>
+    </li>
+    {% empty %}
+    <li class="py-10 text-center text-sm text-ink-400">No learners matched. Try a shorter search.</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}

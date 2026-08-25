@@ -1,0 +1,33 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}Store management · Accounts{% endblock %}
+{% block header_title %}Store management{% endblock %}
+
+{% block sidebar_page_nav %}
+{% include "components/store_nav.html" %}
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner anim-rise">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">Stores</p>
+    <h2 class="sa-hero-title">Store management</h2>
+    <p class="sa-hero-copy">
+      Inventory, stock issues, and school store operations.
+    </p>
+  </div>
+</section>
+
+<section class="overflow-hidden rounded-[1.5rem] border border-ink-950/8 bg-white/90 shadow-panel backdrop-blur">
+  <header class="border-b border-ink-950/8 px-5 py-4 sm:px-6">
+    <h3 class="font-display text-xl font-semibold text-ink-950">Store modules</h3>
+    <p class="mt-0.5 text-sm text-ink-600">Open a store section to continue</p>
+  </header>
+  <div class="module-list p-5 sm:p-6">
+    {% for module in store_modules %}
+    {% url module.url_name as module_href %}
+    {% include "components/module_card.html" with href=module_href meta=module.meta title=module.title blurb=module.blurb %}
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

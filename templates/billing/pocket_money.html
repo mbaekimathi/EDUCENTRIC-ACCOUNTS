@@ -1,0 +1,108 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}Pocket money · Accounts{% endblock %}
+{% block header_kicker %}Cash desk{% endblock %}
+{% block header_title %}Student pocket money{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:dashboard' %}" class="btn-ghost">← Dashboard</a>
+<a href="{% url 'billing:school_accounts' %}" class="btn-ghost">All school accounts</a>
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">Cash desk</p>
+    <h2 class="sa-hero-title">Pocket money accounts</h2>
+    <p class="sa-hero-copy">
+      Choose a pocket money account to open its ledger, top-ups, and vote allocation.
+    </p>
+  </div>
+</section>
+
+<section class="sa-stats">
+  <article class="sa-stat">
+    <p class="sa-stat-label">Total balance</p>
+    <p class="sa-stat-value is-brand">KES {{ total_balance|floatformat:2 }}</p>
+    <p class="sa-stat-meta">Approved top-ups only</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Active accounts</p>
+    <p class="sa-stat-value">{{ active_count }}</p>
+    <p class="sa-stat-meta">{{ pocket_accounts|length }} total in this category</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Pending top-ups</p>
+    <p class="sa-stat-value is-accent">{{ pending_topup_count }}</p>
+  </article>
+</section>
+
+<section class="sa-section">
+  <div class="sa-section-head">
+    <div>
+      <h3 class="sa-section-title">Pocket money accounts</h3>
+      <p class="sa-section-copy">Only accounts whose category is Pocket money</p>
+    </div>
+  </div>
+
+  {% if pocket_accounts %}
+  <div class="sa-table-wrap">
+    <table class="sa-table">
+      <thead>
+        <tr>
+          <th>Account</th>
+          <th>Levels</th>
+          <th>Votes</th>
+          <th>Status</th>
+          <th>Balance</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in pocket_accounts %}
+        <tr class="{% if not row.account.is_active %}is-muted-row{% endif %}">
+          <td>
+            <p class="sa-table-primary">
+              <a href="{% url 'billing:school_account_detail' row.account.id %}" class="sa-account-row-link">{{ row.account.name }}</a>
+            </p>
+            <p class="sa-table-secondary">
+              {% if row.account.description %}{{ row.account.description }}{% else %}No description{% endif %}
+              {% if row.pending_topups %} · {{ row.pending_topups }} pending{% endif %}
+            </p>
+          </td>
+          <td>
+            {% if row.levels %}
+              {% for level in row.levels %}{{ level.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td>{{ row.votes_count }}</td>
+          <td>
+            {% if row.account.is_active %}
+            <span class="sa-badge is-active">Active</span>
+            {% else %}
+            <span class="sa-badge is-suspended">Suspended</span>
+            {% endif %}
+          </td>
+          <td class="is-brand sa-balance-cell">KES {{ row.balance|floatformat:2 }}</td>
+          <td>
+            <a href="{% url 'billing:school_account_detail' row.account.id %}" class="btn-primary btn-compact">Open</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="sa-empty">
+    <div class="sa-empty-mark" aria-hidden="true">P</div>
+    <h4 class="sa-empty-title">No pocket money accounts</h4>
+    <p class="sa-empty-copy">
+      Register a school account and set its category to Pocket money to see it here.
+    </p>
+    <a href="{% url 'billing:school_accounts' %}" class="btn-primary">Go to school accounts</a>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

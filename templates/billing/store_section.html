@@ -1,0 +1,22 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}{{ module.title }} · Store{% endblock %}
+{% block header_title %}{{ module.title }}{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:store_management' %}" class="btn-ghost">← Store</a>
+{% endblock %}
+
+{% block sidebar_page_nav %}
+{% include "components/store_nav.html" %}
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner anim-rise">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">{{ module.meta }}</p>
+    <h2 class="sa-hero-title">{{ module.title }}</h2>
+    <p class="sa-hero-copy">{{ module.copy }}</p>
+  </div>
+</section>
+{% endblock %}

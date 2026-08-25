@@ -1,0 +1,101 @@
+<p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Stores</p>
+
+<a href="{% url 'billing:store_management' %}"
+   class="app-nav-link {% if request.resolver_match.url_name == 'store_management' %}is-active{% endif %}"
+   :title="sidebarCollapsed ? 'Store overview' : null"
+   @click="sidebarOpen = false">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <path d="M4 8.5 12 4l8 4.5V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8.5Z" stroke-linejoin="round"/>
+    <path d="M9 20v-6h6v6M12 8.5v3" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Store overview</span>
+</a>
+
+<a href="{% url 'billing:store_requisitions' %}"
+   class="app-nav-link {% if request.resolver_match.url_name == 'store_requisitions' %}is-active{% endif %}"
+   :title="sidebarCollapsed ? 'Requisitions' : null"
+   @click="sidebarOpen = false">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <path d="M7 4h10a1 1 0 0 1 1 1v15l-3-1.6L12 20l-3-1.6L6 20V5a1 1 0 0 1 1-1Z" stroke-linejoin="round"/>
+    <path d="M9 9h6M9 13h4" stroke-linecap="round"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Requisitions</span>
+</a>
+
+<a href="{% url 'billing:store_lpo' %}"
+   class="app-nav-link {% if request.resolver_match.url_name == 'store_lpo' %}is-active{% endif %}"
+   :title="sidebarCollapsed ? 'LPO' : null"
+   @click="sidebarOpen = false">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <rect x="5" y="3.5" width="14" height="17" rx="1.5"/>
+    <path d="M8.5 8h7M8.5 12h7M8.5 16h4" stroke-linecap="round"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">LPO</span>
+</a>
+
+<a href="{% url 'billing:store_register_item' %}"
+   class="app-nav-link {% if request.resolver_match.url_name == 'store_register_item' %}is-active{% endif %}"
+   :title="sidebarCollapsed ? 'Register item' : null"
+   @click="sidebarOpen = false">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <rect x="4" y="5" width="16" height="14" rx="2"/>
+    <path d="M8 9h8M8 13h5M16.5 16.5v3M15 18h3" stroke-linecap="round"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Register item</span>
+</a>
+
+<a href="{% url 'billing:store_stock_in_out' %}"
+   class="app-nav-link {% if request.resolver_match.url_name == 'store_stock_in_out' %}is-active{% endif %}"
+   :title="sidebarCollapsed ? 'Stock in & out' : null"
+   @click="sidebarOpen = false">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <path d="M4 12h16M8 8l-4 4 4 4M16 8l4 4-4 4" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Stock in &amp; out</span>
+</a>
+
+<a href="{% url 'billing:store_stock_analysis' %}"
+   class="app-nav-link {% if request.resolver_match.url_name == 'store_stock_analysis' %}is-active{% endif %}"
+   :title="sidebarCollapsed ? 'Stock analysis' : null"
+   @click="sidebarOpen = false">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <path d="M4 19V6M4 19h16" stroke-linecap="round"/>
+    <path d="M8 15v-4M12 15V8M16 15v-7" stroke-linecap="round"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Stock analysis</span>
+</a>
+
+<a href="{% url 'billing:store_current_stock' %}"
+   class="app-nav-link {% if request.resolver_match.url_name == 'store_current_stock' %}is-active{% endif %}"
+   :title="sidebarCollapsed ? 'Current stock' : null"
+   @click="sidebarOpen = false">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <path d="M4 8.5 12 4l8 4.5-8 4.5L4 8.5Z" stroke-linejoin="round"/>
+    <path d="M4 8.5V15l8 4.5 8-4.5V8.5" stroke-linejoin="round"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Current stock</span>
+</a>
+
+<a href="{% url 'billing:store_suppliers' %}"
+   class="app-nav-link {% if request.resolver_match.url_name == 'store_suppliers' %}is-active{% endif %}"
+   :title="sidebarCollapsed ? 'Suppliers' : null"
+   @click="sidebarOpen = false">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <circle cx="9" cy="8" r="3"/>
+    <path d="M4 19a5 5 0 0 1 10 0" stroke-linecap="round"/>
+    <circle cx="17" cy="9" r="2.2"/>
+    <path d="M16.2 19a4 4 0 0 1 5.3-3.4" stroke-linecap="round"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Suppliers</span>
+</a>
+
+<a href="{% url 'billing:store_stock_audit' %}"
+   class="app-nav-link {% if request.resolver_match.url_name == 'store_stock_audit' %}is-active{% endif %}"
+   :title="sidebarCollapsed ? 'Stock audit' : null"
+   @click="sidebarOpen = false">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <path d="M5 6.5h14v12H5z" stroke-linejoin="round"/>
+    <path d="M8 10h.01M8 14h8M12 10h4" stroke-linecap="round"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Stock audit</span>
+</a>

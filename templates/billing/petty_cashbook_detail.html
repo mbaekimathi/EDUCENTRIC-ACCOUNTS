@@ -1,0 +1,333 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}{{ account.name }} · Petty cashbook{% endblock %}
+{% block header_kicker %}Petty cashbook{% endblock %}
+{% block header_title %}{{ account.name }}{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:petty_cashbook' %}" class="btn-ghost">← Petty cashbook</a>
+{% if account.is_active %}
+<button type="button" class="btn-ghost" data-open-topup-modal>Top up</button>
+<button type="button" class="btn-primary" data-open-withdraw-modal>Withdraw</button>
+{% endif %}
+{% endblock %}
+
+{% block sidebar_page_nav %}
+{% include "components/finance_nav.html" %}
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">{{ account.category_label }}</p>
+    <h2 class="sa-hero-title">{{ account.name }}</h2>
+    <p class="sa-hero-copy">
+      {% if account.description %}{{ account.description }}{% else %}No description provided.{% endif %}
+    </p>
+  </div>
+  <div class="sa-hero__body">
+    <div class="sad-meta">
+      {% if account.is_active %}
+      <span class="sa-badge is-active">Active</span>
+      {% else %}
+      <span class="sa-badge is-suspended">Suspended</span>
+      {% endif %}
+    </div>
+    {% if account.is_active %}
+    <div class="sad-tools">
+      <button type="button" class="btn-ghost btn-compact" data-open-topup-modal>Top up</button>
+      <button type="button" class="btn-primary btn-compact" data-open-withdraw-modal>Withdraw</button>
+    </div>
+    {% endif %}
+  </div>
+</section>
+
+<section class="sa-stats">
+  <article class="sa-stat">
+    <p class="sa-stat-label">Available balance</p>
+    <p class="sa-stat-value is-brand">KES {{ balance|floatformat:2 }}</p>
+    <p class="sa-stat-meta">{% if pending_topups %}{{ pending_topups }} pending top-up{{ pending_topups|pluralize }}{% else %}Ready to spend{% endif %}</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Total topped up</p>
+    <p class="sa-stat-value">KES {{ topped_up|floatformat:2 }}</p>
+    <p class="sa-stat-meta">Approved credits</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Total withdrawn</p>
+    <p class="sa-stat-value is-accent">KES {{ withdrawn|floatformat:2 }}</p>
+    <p class="sa-stat-meta">Approved debits</p>
+  </article>
+</section>
+
+<section class="sa-section">
+  <div class="sa-section-head">
+    <div>
+      <h3 class="sa-section-title">Top-ups</h3>
+      <p class="sa-section-copy">Credits posted to this petty cashbook account</p>
+    </div>
+    {% if account.is_active %}
+    <button type="button" class="btn-ghost btn-compact" data-open-topup-modal>Top up</button>
+    {% endif %}
+  </div>
+
+  <div class="sa-table-wrap">
+    <table class="sa-table">
+      <thead>
+        <tr>
+          <th>Reference</th>
+          <th>Method</th>
+          <th>Amount</th>
+          <th>Status</th>
+          <th>When</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for topup in topups %}
+        <tr>
+          <td>
+            <p class="sa-table-primary">{{ topup.reference_code }}</p>
+            <p class="sa-table-secondary">{{ topup.reference_number }}{% if topup.description %} · {{ topup.description }}{% endif %}</p>
+          </td>
+          <td>{{ topup.get_method_display }}</td>
+          <td class="is-brand">KES {{ topup.amount|floatformat:2 }}</td>
+          <td>
+            <span class="sa-badge {% if topup.status == 'APPROVED' %}is-active{% elif topup.status == 'PENDING' %}is-pending{% else %}is-suspended{% endif %}">
+              {{ topup.get_status_display }}
+            </span>
+          </td>
+          <td>{{ topup.created_at|date:"d M Y, H:i" }}</td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="5" class="sa-table-empty">No top-ups recorded yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="sa-section">
+  <div class="sa-section-head">
+    <div>
+      <h3 class="sa-section-title">Withdrawals</h3>
+      <p class="sa-section-copy">Debits recorded against this petty cashbook account</p>
+    </div>
+    {% if account.is_active %}
+    <button type="button" class="btn-primary btn-compact" data-open-withdraw-modal>Withdraw</button>
+    {% endif %}
+  </div>
+
+  <div class="sa-table-wrap">
+    <table class="sa-table">
+      <thead>
+        <tr>
+          <th>Reference</th>
+          <th>Payee</th>
+          <th>Method</th>
+          <th>Amount</th>
+          <th>When</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for withdrawal in withdrawals %}
+        <tr>
+          <td>
+            <p class="sa-table-primary">{{ withdrawal.reference_code }}</p>
+            <p class="sa-table-secondary">{{ withdrawal.reference_number }}{% if withdrawal.description %} · {{ withdrawal.description }}{% endif %}</p>
+          </td>
+          <td>{{ withdrawal.payee }}</td>
+          <td>{{ withdrawal.get_method_display }}</td>
+          <td class="is-accent">KES {{ withdrawal.amount|floatformat:2 }}</td>
+          <td>{{ withdrawal.created_at|date:"d M Y, H:i" }}</td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="5" class="sa-table-empty">No withdrawals recorded yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<dialog id="topup-modal" class="account-modal" {% if open_topup_modal %}open{% endif %}>
+  <form method="post" action="{% url 'billing:petty_cashbook_detail' account.id %}" class="account-modal-card" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="action" value="topup">
+
+    <div class="account-modal-head">
+      <div>
+        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-400">Petty cashbook</p>
+        <h3 class="font-display text-2xl font-semibold text-ink-950">Top up account</h3>
+      </div>
+      <button type="button" class="account-modal-close" data-close-topup-modal aria-label="Close">×</button>
+    </div>
+
+    <div class="account-modal-body space-y-4">
+      <p class="rounded-lg border border-dashed border-ink-200 bg-ink-50/60 px-3 py-2 text-sm text-ink-600">
+        Account: <span class="font-semibold text-ink-950">{{ account.name }}</span>
+      </p>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Amount (KES) *</span>
+        <input type="number" name="amount" required min="0.01" step="0.01" value="{{ topup_form.amount }}" class="field-input" placeholder="0.00">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Method of top up *</span>
+        <select name="method" required class="field-input">
+          <option value="">Select method</option>
+          {% for value, label in topup_methods %}
+          <option value="{{ value }}" {% if topup_form.method == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        {% if not mpesa_enabled %}
+        <p class="mt-1.5 text-xs text-ink-400">STK Push is hidden until M-Pesa is enabled in System settings.</p>
+        {% endif %}
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Short description</span>
+        <input type="text" name="description" maxlength="255" value="{{ topup_form.description }}" class="field-input" placeholder="e.g. Term float replenishment">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Reference number *</span>
+        <input type="text" name="reference_number" required maxlength="120" value="{{ topup_form.reference_number }}" class="field-input" data-uppercase placeholder="Receipt / M-Pesa code" autocomplete="off">
+      </label>
+
+      <p class="rounded-lg border border-dashed border-ink-200 bg-ink-50/60 px-3 py-2 text-sm text-ink-500">
+        A unique reference code (e.g. <span class="font-mono text-ink-700">TOP-YYYYMMDD…</span>) is generated automatically when you save.
+      </p>
+    </div>
+
+    <div class="account-modal-actions">
+      <button type="button" class="btn-ghost" data-close-topup-modal>Cancel</button>
+      <button type="submit" class="btn-primary">Record top up</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="withdraw-modal" class="account-modal" {% if open_withdraw_modal %}open{% endif %}>
+  <form method="post" action="{% url 'billing:petty_cashbook_detail' account.id %}" class="account-modal-card" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="action" value="withdraw">
+
+    <div class="account-modal-head">
+      <div>
+        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-400">Petty cashbook</p>
+        <h3 class="font-display text-2xl font-semibold text-ink-950">Withdraw funds</h3>
+      </div>
+      <button type="button" class="account-modal-close" data-close-withdraw-modal aria-label="Close">×</button>
+    </div>
+
+    <div class="account-modal-body space-y-4">
+      <p class="rounded-lg border border-dashed border-ink-200 bg-ink-50/60 px-3 py-2 text-sm text-ink-600">
+        Account: <span class="font-semibold text-ink-950">{{ account.name }}</span>
+        · Available balance: <span class="font-semibold text-ink-950">KES {{ balance|floatformat:2 }}</span>
+      </p>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Amount (KES) *</span>
+        <input type="number" name="amount" required min="0.01" step="0.01" max="{{ balance }}" value="{{ withdraw_form.amount }}" class="field-input" placeholder="0.00">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Payee *</span>
+        <input type="text" name="payee" required maxlength="160" value="{{ withdraw_form.payee }}" class="field-input" data-uppercase placeholder="Who received the funds?" autocomplete="off">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Method of payment *</span>
+        <select name="method" required class="field-input">
+          <option value="">Select method</option>
+          {% for value, label in withdraw_methods %}
+          <option value="{{ value }}" {% if withdraw_form.method == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Purpose / description</span>
+        <input type="text" name="description" maxlength="255" value="{{ withdraw_form.description }}" class="field-input" placeholder="e.g. Stationery purchase">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Voucher / reference number *</span>
+        <input type="text" name="reference_number" required maxlength="120" value="{{ withdraw_form.reference_number }}" class="field-input" data-uppercase placeholder="Petty cash voucher no." autocomplete="off">
+      </label>
+
+      <p class="rounded-lg border border-dashed border-ink-200 bg-ink-50/60 px-3 py-2 text-sm text-ink-500">
+        A unique reference code (e.g. <span class="font-mono text-ink-700">WDR-YYYYMMDD…</span>) is generated automatically when you save.
+      </p>
+    </div>
+
+    <div class="account-modal-actions">
+      <button type="button" class="btn-ghost" data-close-withdraw-modal>Cancel</button>
+      <button type="submit" class="btn-primary">Record withdrawal</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(function () {
+  function wireModal(modal, openSelector, closeSelector) {
+    if (!modal) return;
+
+    function show() {
+      if (typeof modal.showModal === "function") modal.showModal();
+      else modal.setAttribute("open", "open");
+    }
+
+    function close() {
+      if (typeof modal.close === "function") modal.close();
+      else modal.removeAttribute("open");
+    }
+
+    document.querySelectorAll(openSelector).forEach(function (btn) {
+      btn.addEventListener("click", function (event) {
+        event.preventDefault();
+        show();
+      });
+    });
+    document.querySelectorAll(closeSelector).forEach(function (btn) {
+      btn.addEventListener("click", function (event) {
+        event.preventDefault();
+        close();
+      });
+    });
+    modal.addEventListener("click", function (event) {
+      if (event.target === modal) close();
+    });
+
+    if (modal.hasAttribute("open")) {
+      modal.removeAttribute("open");
+      show();
+    }
+  }
+
+  wireModal(
+    document.getElementById("topup-modal"),
+    "[data-open-topup-modal]",
+    "[data-close-topup-modal]"
+  );
+  wireModal(
+    document.getElementById("withdraw-modal"),
+    "[data-open-withdraw-modal]",
+    "[data-close-withdraw-modal]"
+  );
+
+  var params = new URLSearchParams(window.location.search);
+  if (params.get("open") === "topup") {
+    var topupModal = document.getElementById("topup-modal");
+    if (topupModal && typeof topupModal.showModal === "function") topupModal.showModal();
+  }
+  if (params.get("open") === "withdraw") {
+    var withdrawModal = document.getElementById("withdraw-modal");
+    if (withdrawModal && typeof withdrawModal.showModal === "function") withdrawModal.showModal();
+  }
+})();
+</script>
+{% endblock %}

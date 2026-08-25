@@ -1,0 +1,45 @@
+<aside
+  id="accounts-sidebar"
+  class="app-sidebar fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-ink-950/8 bg-white/95 shadow-[8px_0_40px_-28px_rgba(15,20,25,0.35)] backdrop-blur-xl transition-all duration-300 ease-out lg:translate-x-0"
+  :class="[
+    sidebarOpen ? 'translate-x-0' : '-translate-x-full',
+    sidebarCollapsed ? 'lg:w-[4.5rem] is-collapsed' : 'lg:w-64'
+  ]"
+  aria-label="Accounts navigation"
+>
+  <div class="flex h-14 shrink-0 items-center gap-3 border-b border-ink-950/8 px-4 sm:h-16"
+       :class="sidebarCollapsed && 'lg:justify-center lg:px-2'">
+    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand to-brand-deep text-sm font-bold tracking-tight text-white shadow-sm">
+      {{ brand.school_display|slice:":1"|upper }}
+    </div>
+    <div class="min-w-0" :class="sidebarCollapsed && 'lg:hidden'">
+      <p class="truncate text-sm font-bold tracking-tight text-ink-950">{{ brand.school_display }}</p>
+      <p class="truncate text-[11px] font-medium text-ink-400">{% if store_workspace %}Store workspace{% else %}Finance workspace{% endif %}</p>
+    </div>
+  </div>
+
+  <nav class="flex flex-1 flex-col gap-0.5 overflow-y-auto px-3 py-4" aria-label="Primary">
+    {% if not store_workspace %}
+    <p class="app-nav-label mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Workspace</p>
+
+    <a href="{% url 'billing:dashboard' %}"
+       class="app-nav-link {% if request.resolver_match.url_name == 'dashboard' %}is-active{% endif %}"
+       :title="sidebarCollapsed ? 'Dashboard' : null"
+       @click="sidebarOpen = false">
+      <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+        <path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z" stroke-linejoin="round"/>
+      </svg>
+      <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Dashboard</span>
+    </a>
+
+    <a href="{% url 'billing:student_search' %}"
+       class="app-nav-link {% if request.resolver_match.url_name == 'student_search' %}is-active{% endif %}"
+       :title="sidebarCollapsed ? 'Find Student' : null"
+       @click="sidebarOpen = false">
+      <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+        <circle cx="11" cy="11" r="6.5"/>
+        <path d="m16 16 4.5 4.5" stroke-linecap="round"/>
+      </svg>
+      <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Find Student</span>
+    </a>
+    {% endif %}

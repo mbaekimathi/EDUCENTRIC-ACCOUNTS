@@ -1,0 +1,234 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}Financial year · Accounts{% endblock %}
+{% block header_kicker %}System settings{% endblock %}
+{% block header_title %}Financial year{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:system_settings' %}" class="btn-ghost">← System settings</a>
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner anim-rise">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">Period control</p>
+    <h2 class="sa-hero-title">Financial year</h2>
+    <p class="sa-hero-copy">
+      Define the year window, then work in the term that matches today.
+      Only the current year can hold the active term.
+    </p>
+  </div>
+  <div class="sa-hero__body">
+    <div class="fy-hero-status">
+      {% if system_current_term %}
+      <p class="fy-status-label">Now operating in</p>
+      <p class="fy-status-title">{{ system_current_term.name }}</p>
+      <p class="fy-status-meta">
+        {{ system_current_term.financial_year.display_name }}
+        · {{ system_current_term.start_date|date:"d M Y" }} – {{ system_current_term.end_date|date:"d M Y" }}
+      </p>
+      {% elif system_current_year %}
+      <p class="fy-status-label">Current year</p>
+      <p class="fy-status-title">{{ system_current_year.display_name }}</p>
+      <p class="fy-status-meta">No current term yet — pick the term covering today below.</p>
+      {% else %}
+      <p class="fy-status-label">Setup needed</p>
+      <p class="fy-status-title">No year registered</p>
+      <p class="fy-status-meta">Save a financial year to create Term 1–3 automatically.</p>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<article class="fy-card anim-rise-delay">
+  <div class="fy-card-head">
+    <div>
+      <p class="fy-card-kicker">{% if editing_year %}Edit year{% else %}Register{% endif %}</p>
+      <h3 class="fy-card-title">
+        {% if editing_year and selected_year %}{{ selected_year.display_name }}{% else %}Financial year dates{% endif %}
+      </h3>
+      <p class="fy-card-copy">Set start and end dates. Mark one year as current for Accounts.</p>
+    </div>
+  </div>
+
+  <form method="post" class="fy-form" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="action" value="save_year">
+    {% if editing_year and selected_year %}
+    <input type="hidden" name="edit_year_id" value="{{ selected_year.id }}">
+    <input type="hidden" name="year_id" value="{{ selected_year.id }}">
+    {% endif %}
+
+    <label class="fy-field">
+      <span class="fy-label">{{ year_form.name.label }}</span>
+      {{ year_form.name }}
+      {% if year_form.name.errors %}<span class="fy-error">{{ year_form.name.errors|striptags }}</span>{% endif %}
+    </label>
+
+    <div class="fy-date-row">
+      <label class="fy-field">
+        <span class="fy-label">{{ year_form.start_date.label }} *</span>
+        {{ year_form.start_date }}
+        {% if year_form.start_date.errors %}<span class="fy-error">{{ year_form.start_date.errors|striptags }}</span>{% endif %}
+      </label>
+      <div class="fy-date-bridge" aria-hidden="true">to</div>
+      <label class="fy-field">
+        <span class="fy-label">{{ year_form.end_date.label }} *</span>
+        {{ year_form.end_date }}
+        {% if year_form.end_date.errors %}<span class="fy-error">{{ year_form.end_date.errors|striptags }}</span>{% endif %}
+      </label>
+    </div>
+
+    <label class="fy-check">
+      {{ year_form.is_current }}
+      <span>
+        <span class="fy-check-title">{{ year_form.is_current.label }}</span>
+        <span class="fy-check-copy">Current term lives only on this year and defaults to today’s range.</span>
+      </span>
+    </label>
+
+    <div class="fy-actions">
+      <button type="submit" class="btn-primary">
+        {% if editing_year %}Save year changes{% else %}Save financial year{% endif %}
+      </button>
+      {% if editing_year %}
+      <a href="{% url 'billing:financial_year_settings' %}{% if selected_year %}?year={{ selected_year.id }}{% endif %}" class="btn-ghost">Cancel</a>
+      {% endif %}
+    </div>
+  </form>
+</article>
+
+<section class="fy-split anim-rise-delay">
+  <aside class="fy-side">
+    <article class="fy-card fy-card-flush">
+      <div class="fy-card-head">
+        <div>
+          <p class="fy-card-kicker">Library</p>
+          <h3 class="fy-card-title">Registered years</h3>
+          <p class="fy-card-copy">Select a year to review its terms on the right.</p>
+        </div>
+      </div>
+
+      {% if years %}
+      <ul class="fy-year-list">
+        {% for year in years %}
+        <li class="fy-year {% if selected_year and selected_year.id == year.id %}is-selected{% endif %} {% if year.is_current %}is-current{% endif %}">
+          <a href="{% url 'billing:financial_year_settings' %}?year={{ year.id }}" class="fy-year-link">
+            <span class="fy-year-mark" aria-hidden="true">{{ year.start_date|date:"y" }}</span>
+            <span class="fy-year-text">
+              <span class="fy-year-name">{{ year.display_name }}</span>
+              <span class="fy-year-range">{{ year.start_date|date:"d M Y" }} – {{ year.end_date|date:"d M Y" }}</span>
+              {% if year.is_current %}<span class="sa-badge is-active">Current year</span>{% endif %}
+            </span>
+          </a>
+          <div class="fy-year-actions">
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="edit_year">
+              <input type="hidden" name="year_id" value="{{ year.id }}">
+              <button type="submit" class="btn-ghost btn-compact">Edit</button>
+            </form>
+            <form method="post" onsubmit="return confirm('Delete financial year “{{ year.display_name|escapejs }}” and its terms?');">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="delete_year">
+              <input type="hidden" name="year_id" value="{{ year.id }}">
+              <button type="submit" class="btn-danger btn-compact">Delete</button>
+            </form>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="fy-empty">
+        <p class="fy-empty-title">No years yet</p>
+        <p class="fy-empty-copy">Register a financial year above to get started.</p>
+      </div>
+      {% endif %}
+    </article>
+  </aside>
+
+  <div class="fy-main">
+    {% if selected_year %}
+    <article class="fy-card">
+      <div class="fy-card-head fy-card-head-split">
+        <div>
+          <p class="fy-card-kicker">{{ selected_year.display_name }}</p>
+          <h3 class="fy-card-title">{% if selected_year.is_current %}Terms · current year{% else %}Terms{% endif %}</h3>
+          <p class="fy-card-copy">
+            {% if selected_year.is_current %}
+            {{ selected_year.start_date|date:"d M Y" }} – {{ selected_year.end_date|date:"d M Y" }}. Default current term is the one covering today.
+            {% else %}
+            {{ selected_year.start_date|date:"d M Y" }} – {{ selected_year.end_date|date:"d M Y" }}. Mark this year as current to choose an active term.
+            {% endif %}
+          </p>
+        </div>
+        {% if selected_year.is_current and suggested_term %}
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="use_suggested_term">
+          <input type="hidden" name="year_id" value="{{ selected_year.id }}">
+          <button type="submit" class="btn-ghost btn-compact">Use today’s · {{ suggested_term.name }}</button>
+        </form>
+        {% endif %}
+      </div>
+
+      {% if terms %}
+      <ol class="fy-term-rail">
+        {% for term in terms %}
+        <li class="fy-term {% if selected_year.is_current and term.is_current %}is-current{% endif %} {% if suggested_term and suggested_term.id == term.id %}is-today{% endif %}">
+          <div class="fy-term-marker" aria-hidden="true">
+            <span class="fy-term-index">{{ forloop.counter }}</span>
+          </div>
+          <div class="fy-term-body">
+            <div class="fy-term-top">
+              <h4 class="fy-term-name">{{ term.name }}</h4>
+              <div class="fy-term-badges">
+                {% if selected_year.is_current and term.is_current %}
+                <span class="sa-badge is-active">Current</span>
+                {% endif %}
+                {% if suggested_term and suggested_term.id == term.id %}
+                <span class="sa-badge is-pending">Today</span>
+                {% endif %}
+              </div>
+            </div>
+            <p class="fy-term-dates">{{ term.start_date|date:"d M Y" }} – {{ term.end_date|date:"d M Y" }}</p>
+            <div class="fy-term-actions">
+              {% if selected_year.is_current and not term.is_current %}
+              <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="set_current_term">
+                <input type="hidden" name="year_id" value="{{ selected_year.id }}">
+                <input type="hidden" name="term_id" value="{{ term.id }}">
+                <button type="submit" class="btn-primary btn-compact">Set as current</button>
+              </form>
+              {% endif %}
+              <form method="post" onsubmit="return confirm('Delete term “{{ term.name|escapejs }}”?');">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="delete_term">
+                <input type="hidden" name="year_id" value="{{ selected_year.id }}">
+                <input type="hidden" name="term_id" value="{{ term.id }}">
+                <button type="submit" class="btn-danger btn-compact">Delete</button>
+              </form>
+            </div>
+          </div>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <div class="fy-empty">
+        <p class="fy-empty-title">No terms yet</p>
+        <p class="fy-empty-copy">Save this year to generate Term 1–3 automatically.</p>
+      </div>
+      {% endif %}
+    </article>
+    {% else %}
+    <article class="fy-card">
+      <div class="fy-empty">
+        <p class="fy-empty-title">Select a year</p>
+        <p class="fy-empty-copy">Choose a registered year on the left to view its terms.</p>
+      </div>
+    </article>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

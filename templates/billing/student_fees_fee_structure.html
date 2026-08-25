@@ -1,0 +1,453 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}Fee structure · {{ account.name }}{% endblock %}
+{% block header_kicker %}Students fees{% endblock %}
+{% block header_title %}Fee structure{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:student_fees_account_levels' account.id %}" class="btn-ghost">← Levels</a>
+<button type="button" class="btn-primary" data-open-structure-modal data-mode="create">+ Register structure</button>
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">{{ account.name }}</p>
+    <h2 class="sa-hero-title">Fee structure</h2>
+    <p class="sa-hero-copy">
+      Register session fee structures from this account’s votes. Edit amounts, apply to learners, archive, or delete.
+    </p>
+  </div>
+  <div class="sa-hero__body flex justify-end">
+    <button type="button" class="btn-primary sa-hero-cta" data-open-structure-modal data-mode="create">
+      Register structure
+    </button>
+  </div>
+</section>
+
+<section class="sa-stats">
+  <article class="sa-stat">
+    <p class="sa-stat-label">Structures</p>
+    <p class="sa-stat-value">{{ structure_rows|length }}</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Votes available</p>
+    <p class="sa-stat-value">{{ votes|length }}</p>
+    <p class="sa-stat-meta">Approved vote heads</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Linked levels</p>
+    <p class="sa-stat-value">{{ levels|length }}</p>
+  </article>
+</section>
+
+<section class="sa-section">
+  <div class="sa-section-head">
+    <div>
+      <h3 class="sa-section-title">Registered structures</h3>
+      <p class="sa-section-copy">Manage each structure — edit, apply charges, archive, or delete</p>
+    </div>
+    <button type="button" class="btn-ghost btn-compact" data-open-structure-modal data-mode="create">Register structure</button>
+  </div>
+
+  {% if structure_rows %}
+  <div class="sa-table-wrap">
+    <table class="sa-table">
+      <thead>
+        <tr>
+          <th>Structure</th>
+          <th>Sessions</th>
+          <th>Total / learner</th>
+          <th>Status</th>
+          <th>Levels</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in structure_rows %}
+        <tr class="{% if row.structure.status == 'ARCHIVED' %}is-muted-row{% endif %}">
+          <td>
+            <p class="sa-table-primary">{{ row.structure.display_name }}</p>
+            <p class="sa-table-secondary">{{ row.structure.reference_code }}</p>
+          </td>
+          <td>
+            {{ row.structure.financial_term.name }}
+            <span class="sa-table-secondary"> · {{ row.structure.financial_year.display_name }}</span>
+          </td>
+          <td class="is-brand">KES {{ row.total|floatformat:2 }}</td>
+          <td>
+            <span class="sa-badge {% if row.structure.status == 'ACTIVE' %}is-active{% else %}is-suspended{% endif %}">
+              {{ row.structure.get_status_display }}
+            </span>
+          </td>
+          <td>
+            {% if row.levels %}
+              {% for level in row.levels %}{{ level.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td>
+            <div class="sa-account-actions-inline">
+              {% if row.structure.status == 'ACTIVE' %}
+              <button
+                type="button"
+                class="btn-ghost btn-compact"
+                data-open-structure-modal
+                data-mode="edit"
+                data-structure-id="{{ row.structure.id }}"
+              >Edit</button>
+              <form method="post" action="{% url 'billing:student_fees_fee_structure' account.id %}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="apply_structure">
+                <input type="hidden" name="structure_id" value="{{ row.structure.id }}">
+                <button type="submit" class="btn-ghost btn-compact">Apply</button>
+              </form>
+              <form method="post" action="{% url 'billing:student_fees_fee_structure' account.id %}" onsubmit="return confirm('Archive this fee structure?');">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="archive_structure">
+                <input type="hidden" name="structure_id" value="{{ row.structure.id }}">
+                <button type="submit" class="btn-ghost btn-compact">Archive</button>
+              </form>
+              {% else %}
+              <form method="post" action="{% url 'billing:student_fees_fee_structure' account.id %}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="restore_structure">
+                <input type="hidden" name="structure_id" value="{{ row.structure.id }}">
+                <button type="submit" class="btn-ghost btn-compact">Restore</button>
+              </form>
+              {% endif %}
+              {% if row.has_payments %}
+              <button
+                type="button"
+                class="btn-danger btn-compact"
+                title="Cannot delete while payments exist"
+                onclick="alert('Cannot delete this structure: learners have payments against it. Archive it instead.');"
+              >Delete</button>
+              {% else %}
+              <form
+                method="post"
+                action="{% url 'billing:student_fees_fee_structure' account.id %}"
+                onsubmit="return confirm('Delete this fee structure and its unpaid learner charges?');"
+              >
+                {% csrf_token %}
+                <input type="hidden" name="action" value="delete_structure">
+                <input type="hidden" name="structure_id" value="{{ row.structure.id }}">
+                <button type="submit" class="btn-danger btn-compact">Delete</button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="sa-empty">
+    <div class="sa-empty-mark" aria-hidden="true">S</div>
+    <h4 class="sa-empty-title">No fee structures yet</h4>
+    <p class="sa-empty-copy">
+      Create a structure for the current session. It will post each vote amount to every learner on the selected levels.
+    </p>
+    <button type="button" class="btn-primary" data-open-structure-modal data-mode="create">Register structure</button>
+  </div>
+  {% endif %}
+</section>
+
+<dialog id="structure-modal" class="account-modal">
+  <form method="post" action="{% url 'billing:student_fees_fee_structure' account.id %}" class="account-modal-card" id="structure-form" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="action" id="structure-action" value="register_structure">
+    <input type="hidden" name="structure_id" id="structure-id" value="">
+
+    <div class="account-modal-head">
+      <div>
+        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-400">{{ account.name }}</p>
+        <h3 class="font-display text-2xl font-semibold text-ink-950" id="structure-modal-title">Register fee structure</h3>
+      </div>
+      <button type="button" class="account-modal-close" data-close-structure-modal aria-label="Close">×</button>
+    </div>
+
+    <div class="account-modal-body space-y-4">
+      <div class="grid gap-4 sm:grid-cols-2">
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Financial year *</span>
+          <select name="financial_year_id" id="structure-year" required class="field-input">
+            <option value="">Select year</option>
+            {% for year in years %}
+            <option value="{{ year.id }}" {% if form.financial_year_id == year.id|stringformat:"s" %}selected{% endif %}>
+              {{ year.display_name }}{% if year.is_current %} · current{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Term (session) *</span>
+          <select name="financial_term_id" id="structure-term" required class="field-input">
+            <option value="">Select term</option>
+          </select>
+        </label>
+      </div>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Structure name</span>
+        <p id="structure-name-preview" class="rounded-xl border border-dashed border-ink-200 bg-white px-3 py-2.5 text-sm font-semibold text-ink-800">
+          Select year and term
+        </p>
+        <p class="mt-1.5 text-xs text-ink-400">Generated automatically as Term · Year.</p>
+      </label>
+
+      <fieldset>
+        <legend class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Academic levels *</legend>
+        <p class="mb-2 text-xs text-ink-400">Select one or more levels this structure applies to.</p>
+        <div class="level-grid" id="structure-levels">
+          {% for level in levels %}
+          <label class="check-chip">
+            <input type="checkbox" name="academic_levels" value="{{ level.id }}" {% if level.id in form.academic_levels %}checked{% endif %} data-level-id="{{ level.id }}">
+            <span>{{ level.name }}</span>
+          </label>
+          {% empty %}
+          <p class="text-sm text-ink-400">No academic levels linked to this account.</p>
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Vote amounts (KES) *</legend>
+        <p class="mb-2 text-xs text-ink-400">Set the fee for each approved vote head. Leave blank to skip a vote.</p>
+        {% if votes %}
+        <div class="grid gap-3">
+          {% for vote in votes %}
+          <label class="block rounded-2xl border border-ink-950/10 bg-white px-4 py-3">
+            <span class="mb-1.5 flex items-center justify-between gap-2 text-sm font-semibold text-ink-950">
+              <span>{{ vote.allocation_order }}. {{ vote.name }}</span>
+              {% if vote.code %}<span class="text-xs font-medium text-ink-400">{{ vote.code }}</span>{% endif %}
+            </span>
+            <input
+              type="number"
+              name="vote_amount_{{ vote.id }}"
+              min="0"
+              step="0.01"
+              value=""
+              class="field-input"
+              placeholder="0.00"
+              data-vote-amount-input
+              data-vote-id="{{ vote.id }}"
+            >
+          </label>
+          {% endfor %}
+        </div>
+        <div class="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-brand/20 bg-brand/5 px-4 py-3">
+          <div>
+            <p class="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">Total fee</p>
+            <p class="text-xs text-ink-500">Sum of all vote amounts</p>
+          </div>
+          <p id="structure-fee-total" class="font-display text-2xl font-semibold text-ink-950">KES 0.00</p>
+        </div>
+        {% else %}
+        <p class="rounded-lg border border-dashed border-ink-200 px-3 py-2 text-sm text-ink-500">
+          No approved votes on this account yet.
+          <a href="{% url 'billing:school_account_detail' account.id %}" class="font-semibold text-brand">Register votes</a>
+          first.
+        </p>
+        {% endif %}
+      </fieldset>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Notes</span>
+        <input type="text" name="notes" id="structure-notes" maxlength="255" value="{{ form.notes }}" class="field-input" placeholder="Optional">
+      </label>
+    </div>
+
+    <div class="account-modal-actions">
+      <button type="button" class="btn-ghost" data-close-structure-modal>Cancel</button>
+      <button type="submit" class="btn-primary" id="structure-submit">Save structure</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(function () {
+  var modal = document.getElementById("structure-modal");
+  if (!modal) return;
+
+  var yearSelect = document.getElementById("structure-year");
+  var termSelect = document.getElementById("structure-term");
+  var actionInput = document.getElementById("structure-action");
+  var structureIdInput = document.getElementById("structure-id");
+  var notesInput = document.getElementById("structure-notes");
+  var titleEl = document.getElementById("structure-modal-title");
+  var submitBtn = document.getElementById("structure-submit");
+
+  var termsByYear = {{ terms_by_year_json|safe }};
+  var structures = {{ structures_json|safe }};
+  var defaultForm = {
+    financial_year_id: "{{ form.financial_year_id|escapejs }}",
+    financial_term_id: "{{ form.financial_term_id|escapejs }}",
+    notes: "{{ form.notes|escapejs }}",
+    academic_levels: {{ form_levels_json|safe }},
+    vote_amounts: {{ vote_amounts_json|safe }}
+  };
+  var selectedTerm = defaultForm.financial_term_id || "";
+  var shouldOpen = {{ open_structure_modal|yesno:"true,false" }};
+  var editingId = {{ editing_structure_id|default:"null" }};
+  var readyAt = 0;
+
+  function fillTerms() {
+    if (!yearSelect || !termSelect) return;
+    var yearId = yearSelect.value;
+    var terms = termsByYear[yearId] || [];
+    termSelect.innerHTML = '<option value="">Select term</option>';
+    terms.forEach(function (term) {
+      var opt = document.createElement("option");
+      opt.value = String(term.id);
+      opt.textContent = term.name;
+      if (String(term.id) === String(selectedTerm)) opt.selected = true;
+      termSelect.appendChild(opt);
+    });
+    updateNamePreview();
+  }
+
+  function updateNamePreview() {
+    var preview = document.getElementById("structure-name-preview");
+    if (!preview || !yearSelect || !termSelect) return;
+    var yearOpt = yearSelect.options[yearSelect.selectedIndex];
+    var termOpt = termSelect.options[termSelect.selectedIndex];
+    var yearLabel = yearOpt && yearOpt.value ? yearOpt.textContent.replace(/\s·\s*current\s*$/i, "").trim() : "";
+    var termLabel = termOpt && termOpt.value ? termOpt.textContent.trim() : "";
+    preview.textContent = (yearLabel && termLabel) ? (termLabel + " · " + yearLabel) : "Select year and term";
+  }
+
+  function formatKes(amount) {
+    var n = Number(amount);
+    if (!isFinite(n)) n = 0;
+    return "KES " + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function updateFeeTotal() {
+    var totalEl = document.getElementById("structure-fee-total");
+    if (!totalEl) return;
+    var total = 0;
+    document.querySelectorAll("[data-vote-amount-input]").forEach(function (input) {
+      var raw = (input.value || "").trim();
+      if (!raw) return;
+      var value = Number(raw);
+      if (isFinite(value) && value > 0) total += value;
+    });
+    totalEl.textContent = formatKes(total);
+  }
+
+  function setLevels(levelIds) {
+    var selected = {};
+    (levelIds || []).forEach(function (id) { selected[String(id)] = true; });
+    document.querySelectorAll("#structure-levels [data-level-id]").forEach(function (input) {
+      input.checked = !!selected[String(input.getAttribute("data-level-id"))];
+    });
+  }
+
+  function setVoteAmounts(amounts) {
+    amounts = amounts || {};
+    document.querySelectorAll("[data-vote-amount-input]").forEach(function (input) {
+      var id = input.getAttribute("data-vote-id");
+      input.value = Object.prototype.hasOwnProperty.call(amounts, id) ? (amounts[id] || "") : "";
+    });
+    updateFeeTotal();
+  }
+
+  function applyFormState(state, mode, structureId) {
+    mode = mode || "create";
+    if (yearSelect) yearSelect.value = state.financial_year_id || "";
+    selectedTerm = state.financial_term_id || "";
+    fillTerms();
+    if (notesInput) notesInput.value = state.notes || "";
+    setLevels(state.academic_levels || []);
+    setVoteAmounts(state.vote_amounts || {});
+
+    if (mode === "edit" && structureId) {
+      actionInput.value = "edit_structure";
+      structureIdInput.value = String(structureId);
+      if (titleEl) titleEl.textContent = "Edit fee structure";
+      if (submitBtn) submitBtn.textContent = "Save changes";
+    } else {
+      actionInput.value = "register_structure";
+      structureIdInput.value = "";
+      if (titleEl) titleEl.textContent = "Register fee structure";
+      if (submitBtn) submitBtn.textContent = "Save structure";
+    }
+  }
+
+  function openModal(mode, structureId) {
+    mode = mode || "create";
+    if (mode === "edit" && structureId && structures[String(structureId)]) {
+      applyFormState(structures[String(structureId)], "edit", structureId);
+    } else if (mode === "edit" && editingId && shouldOpen) {
+      applyFormState(defaultForm, "edit", editingId);
+    } else {
+      applyFormState(defaultForm, "create");
+    }
+
+    readyAt = Date.now() + 400;
+    window.setTimeout(function () {
+      try {
+        if (typeof modal.showModal === "function") {
+          if (!modal.open) modal.showModal();
+        } else {
+          modal.setAttribute("open", "open");
+        }
+      } catch (err) {
+        modal.setAttribute("open", "open");
+      }
+    }, 0);
+  }
+
+  function closeModal() {
+    if (Date.now() < readyAt) return;
+    try {
+      if (typeof modal.close === "function" && modal.open) modal.close();
+      else modal.removeAttribute("open");
+    } catch (err) {
+      modal.removeAttribute("open");
+    }
+  }
+
+  document.querySelectorAll("[data-open-structure-modal]").forEach(function (btn) {
+    btn.addEventListener("click", function (event) {
+      event.preventDefault();
+      openModal(btn.getAttribute("data-mode") || "create", btn.getAttribute("data-structure-id"));
+    });
+  });
+  document.querySelectorAll("[data-close-structure-modal]").forEach(function (btn) {
+    btn.addEventListener("click", function (event) {
+      event.preventDefault();
+      readyAt = 0;
+      closeModal();
+    });
+  });
+  modal.addEventListener("click", function (event) {
+    if (event.target === modal) closeModal();
+  });
+
+  if (yearSelect) {
+    yearSelect.addEventListener("change", function () {
+      selectedTerm = "";
+      fillTerms();
+    });
+  }
+  if (termSelect) {
+    termSelect.addEventListener("change", updateNamePreview);
+  }
+
+  document.querySelectorAll("[data-vote-amount-input]").forEach(function (input) {
+    input.addEventListener("input", updateFeeTotal);
+    input.addEventListener("change", updateFeeTotal);
+  });
+
+  fillTerms();
+  updateFeeTotal();
+  if (shouldOpen) {
+    openModal(editingId ? "edit" : "create", editingId);
+  }
+})();
+</script>
+{% endblock %}

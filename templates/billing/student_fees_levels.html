@@ -1,0 +1,68 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}{{ account.name }} · Academic levels{% endblock %}
+{% block header_kicker %}Students fees{% endblock %}
+{% block header_title %}{{ account.name }}{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:student_fees' %}" class="btn-ghost">← Fee accounts</a>
+<a href="{% url 'billing:school_account_detail' account.id %}" class="btn-ghost">Account ledger</a>
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">{{ account.category_label }}</p>
+    <h2 class="sa-hero-title">Academic levels</h2>
+    <p class="sa-hero-copy">
+      Levels linked to {{ account.name }}. Open a level to see learners with payment totals and balances.
+    </p>
+  </div>
+</section>
+
+<section class="sa-section">
+  <div class="sa-section-head">
+    <div>
+      <h3 class="sa-section-title">Linked levels</h3>
+      <p class="sa-section-copy">{{ level_rows|length }} academic level{{ level_rows|length|pluralize }} on this account</p>
+    </div>
+  </div>
+
+  {% if level_rows %}
+  <div class="sa-table-wrap">
+    <table class="sa-table">
+      <thead>
+        <tr>
+          <th>Level</th>
+          <th>Category</th>
+          <th>Learners</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in level_rows %}
+        <tr>
+          <td>
+            <p class="sa-table-primary">{{ row.level.name }}</p>
+            <p class="sa-table-secondary">{{ row.level.code }}{% if row.level.description %} · {{ row.level.description }}{% endif %}</p>
+          </td>
+          <td>{% if row.level.category %}{{ row.level.category }}{% else %}—{% endif %}</td>
+          <td>{{ row.student_count }}</td>
+          <td>
+            <a href="{% url 'billing:student_fees_level_students' account.id row.level.id %}" class="btn-primary btn-compact">Open</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="sa-empty">
+    <div class="sa-empty-mark" aria-hidden="true">L</div>
+    <h4 class="sa-empty-title">No academic levels linked</h4>
+    <p class="sa-empty-copy">Edit this account and link academic levels to continue.</p>
+    <a href="{% url 'billing:school_account_detail' account.id %}" class="btn-primary">Edit account</a>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

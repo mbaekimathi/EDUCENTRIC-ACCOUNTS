@@ -1,0 +1,37 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}System settings · Accounts{% endblock %}
+{% block header_title %}System settings{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:dashboard' %}" class="btn-ghost">← Dashboard</a>
+{% endblock %}
+
+{% block sidebar_page_nav %}
+{% include "components/settings_nav.html" %}
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner anim-rise">
+    <div class="sa-hero__banner">
+      <p class="sa-hero-kicker">Configuration</p>
+      <h2 class="sa-hero-title">System settings</h2>
+      <p class="sa-hero-copy">Configure Accounts portal options for your school.</p>
+    </div>
+  </section>
+
+  <section class="overflow-hidden rounded-[1.5rem] border border-ink-950/8 bg-white/90 shadow-panel backdrop-blur">
+    <header class="border-b border-ink-950/8 px-5 py-4 sm:px-6">
+      <h3 class="font-display text-xl font-semibold text-ink-950">Settings modules</h3>
+      <p class="mt-0.5 text-sm text-ink-600">Choose a configuration area</p>
+    </header>
+    <div class="module-list p-5 sm:p-6">
+      {% url 'billing:accounts_settings' as accounts_href %}
+      {% include "components/module_card.html" with href=accounts_href meta="Ledger" title="Accounts settings" blurb="School accounts, fee categories, and ledger defaults." %}
+      {% url 'billing:financial_year_settings' as fy_href %}
+      {% include "components/module_card.html" with href=fy_href meta="Period" title="Financial year" blurb="Set year start and end dates, then select the current term." %}
+      {% url 'billing:payments_settings' as payments_href %}
+      {% include "components/module_card.html" with href=payments_href meta="Finance" title="Payments settings" blurb="Payment methods, receipt defaults, and collection preferences." %}
+    </div>
+  </section>
+{% endblock %}

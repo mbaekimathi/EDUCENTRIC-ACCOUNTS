@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}Sign in · Accounts{% endblock %}
+
+{% block body %}
+<main class="relative min-h-dvh overflow-hidden grain">
+  <div class="mx-auto flex min-h-dvh max-w-6xl flex-col justify-center px-4 py-10 sm:px-6 lg:px-8">
+    <div class="grid items-center gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:gap-14">
+
+      <section class="anim-rise relative text-center lg:text-left">
+        <p class="mb-4 inline-flex items-center gap-2 rounded-full border border-ink-950/10 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-600 backdrop-blur">
+          Finance &amp; bursary
+        </p>
+        <h1 class="font-display text-[clamp(2.4rem,6vw,4.1rem)] font-semibold leading-[1.05] tracking-tight text-ink-950">
+          {{ brand.school_display }} Accounts
+        </h1>
+        <p class="mt-3 text-lg font-medium text-ink-600 sm:text-xl">{{ brand.school_name }}</p>
+        {% if brand.motto %}
+        <p class="mt-4 max-w-md text-base italic text-ink-400 lg:mx-0 mx-auto">“{{ brand.motto }}”</p>
+        {% else %}
+        <p class="mt-5 max-w-md text-base leading-relaxed text-ink-600 lg:mx-0 mx-auto">
+          Sign in with your Administration employee code. Accountant and Store Manager access only.
+        </p>
+        {% endif %}
+        <div class="mt-8 hidden items-center gap-6 text-sm text-ink-400 lg:flex">
+          <div class="h-10 w-px bg-ink-950/10" aria-hidden="true"></div>
+          <p class="max-w-[14rem] leading-snug">Secure staff session · Shared employee directory</p>
+        </div>
+      </section>
+
+      <section class="anim-rise-delay relative rounded-3xl border border-white/70 bg-white/90 p-5 shadow-panel backdrop-blur-md sm:p-7">
+        <h2 class="font-display text-2xl font-semibold tracking-tight text-ink-950">Accounts sign in</h2>
+        <p class="mt-2 text-sm leading-relaxed text-ink-600">
+          Use your 6-digit employee code and password from Administration.
+        </p>
+
+        {% if error %}
+        <div class="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800" role="alert">{{ error }}</div>
+        {% endif %}
+
+        <form method="post" action="{% url 'staff:login' %}" class="mt-5 space-y-4" id="accounts-login-form" novalidate>
+          {% csrf_token %}
+          <input type="text" name="username" value="" autocomplete="username" tabindex="-1" aria-hidden="true"
+                 style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
+          <input type="password" name="password_dummy" value="" autocomplete="current-password" tabindex="-1" aria-hidden="true"
+                 style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
+
+          <label class="block">
+            <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Employee code</span>
+            <input
+              type="text"
+              name="accounts_staff_code"
+              id="staff-code"
+              value="{{ staff_code }}"
+              required
+              autofocus
+              autocomplete="off"
+              inputmode="numeric"
+              pattern="[0-9]{6}"
+              maxlength="6"
+              minlength="6"
+              placeholder="123456"
+              spellcheck="false"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              class="field-input text-center font-mono text-2xl tracking-[0.35em]"
+            >
+            <span class="mt-1.5 block text-center text-xs text-ink-400">6-digit code from Administration</span>
+          </label>
+          <label class="block">
+            <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Password</span>
+            <div class="relative">
+              <input
+                type="password"
+                name="password"
+                id="password"
+                required
+                autocomplete="new-password"
+                placeholder="Enter your password"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                class="field-input pr-12"
+              >
+              <button
+                type="button"
+                id="toggle-password"
+                class="absolute inset-y-0 right-0 flex items-center px-3.5 text-ink-400 hover:text-ink-800"
+                aria-label="Show password"
+                aria-pressed="false"
+              >
+                <svg class="h-5 w-5" id="icon-eye" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 5c-5 0-9.3 3.1-11 7 1.7 3.9 6 7 11 7s9.3-3.1 11-7c-1.7-3.9-6-7-11-7zm0 12a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>
+                <svg class="hidden h-5 w-5" id="icon-eye-off" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.1 2.3 1.7 3.7l3.1 3.1C3 8.2 1.5 10 1 12c1.7 3.9 6 7 11 7 1.7 0 3.3-.3 4.8-.9l3.1 3.1 1.4-1.4L3.1 2.3zM12 17c-3.9 0-7.2-2.2-8.8-5 .7-1.3 1.8-2.5 3.1-3.4l1.7 1.7A5 5 0 0 0 12 17zm0-10c3.9 0 7.2 2.2 8.8 5-.5.9-1.1 1.7-1.9 2.4l1.5 1.5c1.2-1 2.2-2.3 2.6-3.9-1.7-3.9-6-7-11-7-1.1 0-2.1.1-3.1.4l1.6 1.6c.5-.1 1-.1 1.5-.1z"/></svg>
+              </button>
+            </div>
+          </label>
+          <button type="submit" class="btn-primary group relative flex w-full items-center justify-center gap-2 overflow-hidden py-3.5 text-[15px]">
+            Enter accounts
+          </button>
+        </form>
+
+        <p class="mt-5 text-center text-[11px] leading-relaxed text-ink-400">
+          Accountant / Store Manager · <code>employees_employee</code>
+        </p>
+      </section>
+    </div>
+  </div>
+</main>
+<script>
+(function () {
+  var code = document.getElementById("staff-code");
+  var toggle = document.getElementById("toggle-password");
+  var password = document.getElementById("password");
+  var eye = document.getElementById("icon-eye");
+  var eyeOff = document.getElementById("icon-eye-off");
+
+  if (code) {
+    code.addEventListener("input", function () {
+      code.value = String(code.value || "").replace(/\D/g, "").slice(0, 6);
+    });
+  }
+
+  if (toggle && password) {
+    toggle.addEventListener("click", function () {
+      var showing = password.type === "text";
+      password.type = showing ? "password" : "text";
+      toggle.setAttribute("aria-pressed", showing ? "false" : "true");
+      toggle.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+      eye.classList.toggle("hidden", !showing);
+      eyeOff.classList.toggle("hidden", showing);
+    });
+  }
+})();
+</script>
+{% endblock %}
