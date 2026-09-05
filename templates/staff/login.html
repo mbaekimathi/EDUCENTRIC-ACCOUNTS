@@ -8,6 +8,15 @@
     <div class="grid items-center gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:gap-14">
 
       <section class="anim-rise relative text-center lg:text-left">
+        <div class="mb-5 flex justify-center lg:justify-start">
+          <div class="flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl border border-ink-950/10 bg-white shadow-sm {% if brand.has_logo %}p-2{% else %}bg-gradient-to-br from-brand to-brand-deep text-white{% endif %}">
+            {% if brand.has_logo %}
+            <img src="{{ brand.logo_url }}" alt="" class="h-full w-full object-contain" width="80" height="80" decoding="async">
+            {% else %}
+            <span class="font-display text-2xl font-bold tracking-tight">{{ brand.brand_initials }}</span>
+            {% endif %}
+          </div>
+        </div>
         <p class="mb-4 inline-flex items-center gap-2 rounded-full border border-ink-950/10 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-600 backdrop-blur">
           Finance &amp; bursary
         </p>
@@ -29,6 +38,19 @@
       </section>
 
       <section class="anim-rise-delay relative rounded-3xl border border-white/70 bg-white/90 p-5 shadow-panel backdrop-blur-md sm:p-7">
+        <div class="mb-5 flex items-center gap-3 lg:hidden">
+          <div class="flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl border border-ink-950/10 bg-white {% if brand.has_logo %}p-1.5{% else %}bg-gradient-to-br from-brand to-brand-deep text-white{% endif %}">
+            {% if brand.has_logo %}
+            <img src="{{ brand.logo_url }}" alt="" class="h-full w-full object-contain" width="48" height="48" decoding="async">
+            {% else %}
+            <span class="text-sm font-bold">{{ brand.brand_initials }}</span>
+            {% endif %}
+          </div>
+          <div class="min-w-0">
+            <p class="truncate text-sm font-bold text-ink-950">{{ brand.school_display }}</p>
+            <p class="text-xs font-medium uppercase tracking-wider text-ink-400">Accounts sign in</p>
+          </div>
+        </div>
         <h2 class="font-display text-2xl font-semibold tracking-tight text-ink-950">Accounts sign in</h2>
         <p class="mt-2 text-sm leading-relaxed text-ink-600">
           Use your 6-digit employee code and password from Administration.
