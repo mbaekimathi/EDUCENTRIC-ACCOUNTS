@@ -105,7 +105,7 @@ class SchoolProfile(models.Model):
 class Employee(models.Model):
     """Read-only mirror of ADMINISTRATION employees — used for Accounts portal login."""
 
-    PORTAL_ROLES = frozenset({"ACCOUNTANT", "STORE_MANAGER", "SUPPORT"})
+    PORTAL_ROLES = frozenset({"ACCOUNTANT", "STORE_MANAGER", "IT_SUPPORT"})
 
     password = models.CharField(max_length=128)
     last_login = models.DateTimeField(null=True, blank=True)

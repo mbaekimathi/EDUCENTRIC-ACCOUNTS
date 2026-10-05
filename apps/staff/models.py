@@ -27,9 +27,9 @@ class AccountsUser(AbstractUser):
     class Role(models.TextChoices):
         ACCOUNTANT = "ACCOUNTANT", "Accountant"
         STORE_MANAGER = "STORE_MANAGER", "Store Manager"
-        SUPPORT = "SUPPORT", "Support"
+        IT_SUPPORT = "IT_SUPPORT", "IT Support"
 
-    PORTAL_ROLES = frozenset({Role.ACCOUNTANT, Role.STORE_MANAGER, Role.SUPPORT})
+    PORTAL_ROLES = frozenset({Role.ACCOUNTANT, Role.STORE_MANAGER, Role.IT_SUPPORT})
 
     username = None
     staff_code = models.CharField(

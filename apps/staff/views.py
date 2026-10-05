@@ -13,7 +13,7 @@ ALLOWED_EMPLOYEE_ROLES = Employee.PORTAL_ROLES
 
 
 def portal_access_required(view_func):
-    """Allow only Accountant / Store Manager / Support portal sessions."""
+    """Allow only Accountant / Store Manager / IT Support portal sessions."""
 
     @wraps(view_func)
     @login_required
@@ -42,8 +42,8 @@ def sync_accounts_user_from_employee(employee: Employee) -> AccountsUser:
     """Keep a local AccountsUser for sessions/FKs, sourced from employees_employee."""
     if employee.role == "STORE_MANAGER":
         role = AccountsUser.Role.STORE_MANAGER
-    elif employee.role == "SUPPORT":
-        role = AccountsUser.Role.SUPPORT
+    elif employee.role == "IT_SUPPORT":
+        role = AccountsUser.Role.IT_SUPPORT
     else:
         role = AccountsUser.Role.ACCOUNTANT
     user, _ = AccountsUser.objects.get_or_create(
