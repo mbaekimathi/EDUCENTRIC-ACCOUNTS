@@ -272,7 +272,7 @@ class Command(BaseCommand):
         )
 
         topups = [
-            (fees_account, Decimal("2500000.00"), AccountTopUp.Method.BANK, "BKC-TOP-FEES-001", "Opening fees float"),
+            (fees_account, Decimal("2500000.00"), AccountTopUp.Method.CHEQUE, "BKC-TOP-FEES-001", "Opening fees float"),
             (petty, Decimal("150000.00"), AccountTopUp.Method.CASH, "BKC-TOP-PETTY-001", "Petty cash float"),
             (ops, Decimal("800000.00"), AccountTopUp.Method.MANUAL_MPESA, "BKC-TOP-OPS-001", "Operations top-up"),
             (fees_account, Decimal("450000.00"), AccountTopUp.Method.MANUAL_MPESA, "BKC-TOP-FEES-002", "M-Pesa collections batch"),
