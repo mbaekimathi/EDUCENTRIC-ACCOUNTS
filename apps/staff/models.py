@@ -27,8 +27,9 @@ class AccountsUser(AbstractUser):
     class Role(models.TextChoices):
         ACCOUNTANT = "ACCOUNTANT", "Accountant"
         STORE_MANAGER = "STORE_MANAGER", "Store Manager"
+        SUPPORT = "SUPPORT", "Support"
 
-    PORTAL_ROLES = frozenset({Role.ACCOUNTANT, Role.STORE_MANAGER})
+    PORTAL_ROLES = frozenset({Role.ACCOUNTANT, Role.STORE_MANAGER, Role.SUPPORT})
 
     username = None
     staff_code = models.CharField(
@@ -66,4 +67,4 @@ class AccountsUser(AbstractUser):
 
     @property
     def can_access_portal(self):
-        return self.is_active and self.role in {"ACCOUNTANT", "STORE_MANAGER"}
+        return self.is_active and self.role in self.PORTAL_ROLES

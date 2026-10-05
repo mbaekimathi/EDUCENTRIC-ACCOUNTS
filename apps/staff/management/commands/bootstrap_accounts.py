@@ -36,7 +36,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Bootstrap complete."))
         self.stdout.write(
             "Login uses Administration employees_employee "
-            "(Accountant / Store Manager only)."
+            "(Accountant / Store Manager / Support only)."
         )
         self.stdout.write(f"Eligible employees: {count}")
         for emp in portal_staff[:10]:

@@ -8,14 +8,12 @@ from django.views.decorators.http import require_http_methods, require_POST
 from apps.directory.models import Employee
 from apps.staff.models import AccountsUser
 
-PORTAL_DENIED_MESSAGE = (
-    "Only Accountant and Store Manager staff can sign in to this portal."
-)
+PORTAL_DENIED_MESSAGE = "Not authorised."
 ALLOWED_EMPLOYEE_ROLES = Employee.PORTAL_ROLES
 
 
 def portal_access_required(view_func):
-    """Allow only Accountant / Store Manager portal sessions."""
+    """Allow only Accountant / Store Manager / Support portal sessions."""
 
     @wraps(view_func)
     @login_required
@@ -42,11 +40,12 @@ def _extract_employee_code(post):
 
 def sync_accounts_user_from_employee(employee: Employee) -> AccountsUser:
     """Keep a local AccountsUser for sessions/FKs, sourced from employees_employee."""
-    role = (
-        AccountsUser.Role.STORE_MANAGER
-        if employee.role == "STORE_MANAGER"
-        else AccountsUser.Role.ACCOUNTANT
-    )
+    if employee.role == "STORE_MANAGER":
+        role = AccountsUser.Role.STORE_MANAGER
+    elif employee.role == "SUPPORT":
+        role = AccountsUser.Role.SUPPORT
+    else:
+        role = AccountsUser.Role.ACCOUNTANT
     user, _ = AccountsUser.objects.get_or_create(
         staff_code=employee.employee_code,
         defaults={
