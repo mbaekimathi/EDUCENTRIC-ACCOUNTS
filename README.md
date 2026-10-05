@@ -20,6 +20,7 @@ pip install -r requirements.txt
 copy .env.example .env
 python manage.py ensure_db            # creates ACCOUNTS tables if missing (idempotent migrate)
 python manage.py bootstrap_accounts
+python manage.py seed_demo_fees       # after Admin: seed_best_kenya_college
 python manage.py runserver 8002
 ```
 
