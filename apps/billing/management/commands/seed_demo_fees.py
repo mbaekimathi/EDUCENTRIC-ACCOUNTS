@@ -4,7 +4,6 @@ Seed demo fee charges and payments for Best Kenya College learners.
 Requires ADMINISTRATION seed first (students with assessment ASM1001–ASM1010).
 
   python manage.py seed_demo_fees
-  python manage.py seed_demo_fees --password DemoPass123!
 """
 
 from __future__ import annotations
@@ -19,43 +18,37 @@ from django.utils import timezone
 from apps.billing.models import FeeCategory, FeeCharge, Payment, allocate_payment_to_charges
 
 
-DEFAULT_PASSWORD = "DemoPass123!"
-
 ASSESSMENT_NUMBERS = [f"ASM{1001 + i}" for i in range(10)]
 
+# College fee heads (not CBC lunch/uniform school fees).
 CATEGORY_DEFAULTS = [
-    ("TUIT", "Tuition", "Core academic fees"),
-    ("TRAN", "Transport", "School transport"),
-    ("LUNC", "Lunch", "Meals programme"),
-    ("EXAM", "Examination", "Internal and external exam fees"),
-    ("UNIF", "Uniform", "School uniform"),
-    ("OTHR", "Other", "Miscellaneous charges"),
-    ("BOOK", "Books", "Textbooks and workbooks"),
-    ("ACTV", "Activity", "Clubs and co-curricular"),
-    ("LAB", "Laboratory", "Science lab fees"),
-    ("DEV", "Development", "Infrastructure levy"),
+    ("TUIT", "Tuition", "Semester tuition fees"),
+    ("REG", "Registration", "Admission and semester registration"),
+    ("EXAM", "Examination", "Internal CATs and final examinations"),
+    ("LIB", "Library", "Library and e-resources access"),
+    ("ICT", "ICT Levy", "Computer lab and internet access"),
+    ("ATT", "Industrial Attachment", "Attachment / practicum administration"),
+    ("ID", "Student ID", "College identity card"),
+    ("MED", "Medical", "Student medical / first-aid cover"),
+    ("SRC", "Student Welfare", "SRC and co-curricular activities"),
+    ("DEV", "Development", "Infrastructure and development levy"),
 ]
 
-# 10 charge templates (one primary charge style per student index).
 CHARGE_AMOUNTS = [
-    Decimal("25000.00"),  # tuition-heavy
-    Decimal("4500.00"),
-    Decimal("3000.00"),
-    Decimal("1500.00"),
-    Decimal("5500.00"),
-    Decimal("2000.00"),
-    Decimal("3500.00"),
-    Decimal("4000.00"),
-    Decimal("2800.00"),
+    Decimal("45000.00"),
     Decimal("5000.00"),
+    Decimal("3500.00"),
+    Decimal("2000.00"),
+    Decimal("2500.00"),
+    Decimal("4000.00"),
+    Decimal("1000.00"),
+    Decimal("1500.00"),
+    Decimal("1200.00"),
+    Decimal("3000.00"),
 ]
 
 
 def _lookup_student_ids_by_assessment(numbers: list[str]) -> dict[str, int]:
-    """Resolve admissions_student.id via shared MySQL (no ORM FK in Accounts)."""
-    if connection.vendor != "mysql" and connection.vendor != "sqlite":
-        # Still works on SQLite local if shared DB.
-        pass
     placeholders = ", ".join(["%s"] * len(numbers))
     sql = (
         f"SELECT id, assessment_number FROM admissions_student "
@@ -69,7 +62,7 @@ def _lookup_student_ids_by_assessment(numbers: list[str]) -> dict[str, int]:
 
 class Command(BaseCommand):
     help = (
-        "Seed 10 fee categories (extend bootstrap), 10 charges and 10 payments "
+        "Seed 10 college fee categories, charges and payments "
         "for Best Kenya College demo students (idempotent)."
     )
 
@@ -81,8 +74,8 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--term",
-            default="Term 1",
-            help="Term label on charges (default: Term 1)",
+            default="Semester 1",
+            help="Semester label on charges (default: Semester 1)",
         )
 
     @transaction.atomic
@@ -92,13 +85,18 @@ class Command(BaseCommand):
 
         self.stdout.write("Seeding Best Kenya College fee demo data…")
 
+        # Soft-deactivate schoolkid fee heads from earlier demos.
+        FeeCategory.objects.filter(
+            code__in=["LUNC", "UNIF", "TRAN", "BOOK", "ACTV", "LAB", "OTHR"]
+        ).update(is_active=False)
+
         categories = []
         for code, name, description in CATEGORY_DEFAULTS:
             cat, made = FeeCategory.objects.get_or_create(
                 code=code,
                 defaults={"name": name, "description": description, "is_active": True},
             )
-            if not made and cat.name != name:
+            if not made:
                 cat.name = name
                 cat.description = description
                 cat.is_active = True
@@ -144,20 +142,17 @@ class Command(BaseCommand):
                     "amount_paid": Decimal("0.00"),
                     "status": FeeCharge.Status.OPEN,
                     "due_date": due,
-                    "notes": f"Demo charge for {assess}",
+                    "notes": f"Demo college charge for {assess}",
                 },
             )
             if created:
                 charges_made += 1
-            else:
-                # Keep amount stable on re-run unless unpaid.
-                if charge.amount_paid == 0:
-                    charge.amount = amount
-                    charge.due_date = due
-                    charge.status = FeeCharge.Status.OPEN
-                    charge.save()
+            elif charge.amount_paid == 0:
+                charge.amount = amount
+                charge.due_date = due
+                charge.status = FeeCharge.Status.OPEN
+                charge.save()
 
-            # One demo payment per student (half the charge, or 1000 minimum slice).
             pay_amount = (amount / Decimal("2")).quantize(Decimal("0.01"))
             if pay_amount < Decimal("500.00"):
                 pay_amount = min(amount, Decimal("500.00"))
@@ -174,16 +169,12 @@ class Command(BaseCommand):
                     reference=f"BKC-DEMO-{assess}",
                     notes=f"Demo payment for Best Kenya College learner {assess}",
                 )
-                # Stamp received_at for variety
                 Payment.objects.filter(reference=f"BKC-DEMO-{assess}").update(
                     received_at=timezone.now() - timedelta(days=i)
                 )
                 payments_made += 1
 
-        self.stdout.write(self.style.SUCCESS("Fee demo seed complete."))
+        self.stdout.write(self.style.SUCCESS("College fee demo seed complete."))
         self.stdout.write(f"  Categories: {len(categories)}")
         self.stdout.write(f"  New charges: {charges_made}")
         self.stdout.write(f"  New payments: {payments_made}")
-        self.stdout.write(
-            "  Students: ASM1001–ASM1010 linked via admissions_student.id"
-        )

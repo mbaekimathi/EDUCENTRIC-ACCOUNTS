@@ -11,12 +11,16 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         defaults = [
-            ("TUIT", "Tuition", "Core academic fees"),
-            ("TRAN", "Transport", "School transport"),
-            ("LUNC", "Lunch", "Meals programme"),
-            ("EXAM", "Examination", "Internal and external exam fees"),
-            ("UNIF", "Uniform", "School uniform"),
-            ("OTHR", "Other", "Miscellaneous charges"),
+            ("TUIT", "Tuition", "Semester tuition fees"),
+            ("REG", "Registration", "Admission and semester registration"),
+            ("EXAM", "Examination", "Internal CATs and final examinations"),
+            ("LIB", "Library", "Library and e-resources access"),
+            ("ICT", "ICT Levy", "Computer lab and internet access"),
+            ("ATT", "Industrial Attachment", "Attachment / practicum administration"),
+            ("ID", "Student ID", "College identity card"),
+            ("MED", "Medical", "Student medical / first-aid cover"),
+            ("SRC", "Student Welfare", "SRC and co-curricular activities"),
+            ("DEV", "Development", "Infrastructure and development levy"),
         ]
         for code, name, description in defaults:
             _, made = FeeCategory.objects.get_or_create(

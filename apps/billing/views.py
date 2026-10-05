@@ -362,16 +362,22 @@ def student_fees(request):
 def _student_level_key_from_curriculum(level: AcademicLevel) -> str | None:
     """Map curriculum AcademicLevel to Student.academic_level choice value."""
     valid = {choice for choice, _ in Student.AcademicLevel.choices}
+    name = (level.name or "").strip()
+    for value, label in Student.AcademicLevel.choices:
+        if label.casefold() == name.casefold():
+            return value
+        if value.replace("_", " ").casefold() == name.casefold():
+            return value
+
     name_key = (
-        (level.name or "")
-        .strip()
-        .upper()
+        name.upper()
         .replace("-", " ")
         .replace("  ", " ")
         .replace(" ", "_")
     )
     if name_key in valid:
         return name_key
+
     code = (level.code or "").strip().upper()
     code_map = {
         "G1": "GRADE_1",
@@ -389,6 +395,16 @@ def _student_level_key_from_curriculum(level: AcademicLevel) -> str | None:
         "F2": "FORM_2",
         "F3": "FORM_3",
         "F4": "FORM_4",
+        "Y1": "YEAR_1",
+        "Y2": "YEAR_2",
+        "Y3": "YEAR_3",
+        "Y4": "YEAR_4",
+        "D1": "DIPLOMA_1",
+        "D2": "DIPLOMA_2",
+        "C1": "CERTIFICATE_1",
+        "C2": "CERTIFICATE_2",
+        "BR": "BRIDGING",
+        "SC": "SHORT_COURSE",
     }
     mapped = code_map.get(code)
     if mapped in valid:

@@ -42,6 +42,16 @@ class Student(models.Model):
         FORM_2 = "FORM_2", "Form 2"
         FORM_3 = "FORM_3", "Form 3"
         FORM_4 = "FORM_4", "Form 4"
+        YEAR_1 = "YEAR_1", "First Year"
+        YEAR_2 = "YEAR_2", "Second Year"
+        YEAR_3 = "YEAR_3", "Third Year"
+        YEAR_4 = "YEAR_4", "Fourth Year"
+        DIPLOMA_1 = "DIPLOMA_1", "Diploma Year 1"
+        DIPLOMA_2 = "DIPLOMA_2", "Diploma Year 2"
+        CERTIFICATE_1 = "CERTIFICATE_1", "Certificate Year 1"
+        CERTIFICATE_2 = "CERTIFICATE_2", "Certificate Year 2"
+        BRIDGING = "BRIDGING", "Bridging"
+        SHORT_COURSE = "SHORT_COURSE", "Short Course"
         OTHER = "OTHER", "Other"
 
     password = models.CharField(max_length=128, blank=True)
