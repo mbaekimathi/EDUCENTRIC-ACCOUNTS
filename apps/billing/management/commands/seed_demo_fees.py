@@ -18,16 +18,23 @@ from django.utils import timezone
 
 from apps.billing.models import (
     AccountTopUp,
+    AccountVote,
     AccountWithdraw,
+    DarajaSettings,
     FeeCategory,
     FeeCharge,
+    FeeStructure,
+    FeeStructureLine,
     FinancialTerm,
     FinancialYear,
     Payment,
     SchoolAccount,
+    StoreExpenseCategory,
+    StoreDepartmentStation,
     StoreItem,
     StoreStockMovement,
     StoreSupplier,
+    StoreSupplierPayment,
     allocate_payment_to_charges,
     ensure_store_lookups,
 )
@@ -345,16 +352,93 @@ class Command(BaseCommand):
             },
         )
 
-        ensure_store_lookups()
-        from apps.billing.models import StoreDepartmentStation, StoreExpenseCategory
+        # Pocket money account for learner float demos
+        pocket, _ = SchoolAccount.objects.get_or_create(
+            name="BKC Pocket Money Account",
+            defaults={
+                "category": SchoolAccount.Category.POCKET_MONEY,
+                "description": "Student pocket money float",
+                "payment_modes": ["CASH", "MPESA"],
+                "is_active": True,
+            },
+        )
+        AccountTopUp.objects.get_or_create(
+            reference_number="BKC-TOP-POCKET-001",
+            defaults={
+                "account": pocket,
+                "amount": Decimal("200000.00"),
+                "method": AccountTopUp.Method.CASH,
+                "description": "Opening pocket money float",
+                "reference_code": "BKC-TCODE-POCKET-001",
+                "status": AccountTopUp.Status.APPROVED,
+            },
+        )
 
+        # Vote heads + fee structure on student fees account
+        vote_specs = [
+            (1, "Tuition Vote", "TUIT", Decimal("45000.00")),
+            (2, "Registration Vote", "REG", Decimal("5000.00")),
+            (3, "Examination Vote", "EXAM", Decimal("3500.00")),
+            (4, "Library Vote", "LIB", Decimal("2000.00")),
+            (5, "ICT Levy Vote", "ICT", Decimal("2500.00")),
+            (6, "Development Vote", "DEV", Decimal("8000.00")),
+        ]
+        votes = []
+        for order, name, code, amount in vote_specs:
+            vote, _ = AccountVote.objects.get_or_create(
+                account=fees_account,
+                allocation_order=order,
+                defaults={
+                    "name": name,
+                    "code": code,
+                    "description": f"{name} for Best Kenya College",
+                    "allocation_mode": AccountVote.AllocationMode.AMOUNT,
+                    "amount": amount,
+                    "reference_code": f"BKC-VOTE-{code}",
+                    "status": AccountVote.Status.APPROVED,
+                },
+            )
+            votes.append(vote)
+
+        from apps.directory.models import AcademicLevel as DirLevel
+
+        level_ids = list(DirLevel.objects.values_list("id", flat=True)[:6])
+        fin_term = FinancialTerm.objects.filter(
+            financial_year=fy, name="Semester 1"
+        ).first() or FinancialTerm.objects.filter(financial_year=fy).first()
+        if fin_term is not None:
+            structure, _ = FeeStructure.objects.get_or_create(
+                reference_code="BKC-FS-2026-SEM1",
+                defaults={
+                    "account": fees_account,
+                    "financial_year": fy,
+                    "financial_term": fin_term,
+                    "name": "Semester 1 · 2026/2026",
+                    "academic_level_ids": level_ids,
+                    "status": FeeStructure.Status.ACTIVE,
+                    "notes": "Best Kenya College demo fee structure",
+                },
+            )
+            for vote in votes:
+                FeeStructureLine.objects.get_or_create(
+                    structure=structure,
+                    vote=vote,
+                    defaults={"amount": vote.amount},
+                )
+
+        # Daraja sandbox placeholder (disabled — no real secrets)
+        daraja, _ = DarajaSettings.objects.get_or_create(pk=1)
+        daraja.active_environment = DarajaSettings.Environment.SANDBOX
+        daraja.is_enabled = False
+        daraja.save()
+
+        ensure_store_lookups()
         category = StoreExpenseCategory.objects.order_by("sort_order", "name").first()
         station = StoreDepartmentStation.objects.order_by("sort_order", "name").first()
         supplier, _ = StoreSupplier.objects.get_or_create(
             phone_number="+254700111222",
             defaults={"name": "BKC Campus Suppliers Ltd", "is_active": True},
         )
-
         items_spec = [
             ("Ream of A4 paper", StoreItem.Measure.REAM, "BKC-ITEM-PAPER"),
             ("Whiteboard marker set", StoreItem.Measure.SET, "BKC-ITEM-MARKER"),
@@ -394,8 +478,25 @@ class Command(BaseCommand):
                 },
             )
 
+        # Supplier payments against stock-ins
+        for movement in StoreStockMovement.objects.filter(
+            direction=StoreStockMovement.Direction.IN,
+            reference_code__startswith="SIN-BKC-ITEM",
+        )[:5]:
+            StoreSupplierPayment.objects.get_or_create(
+                reference_code=f"PAY-{movement.reference_code}",
+                defaults={
+                    "movement": movement,
+                    "account": ops,
+                    "amount": movement.invoice_amount or Decimal("15000.00"),
+                    "method": AccountWithdraw.Method.MPESA,
+                    "reference_number": f"SUP-{movement.reference_code}",
+                },
+            )
+
         self.stdout.write(self.style.SUCCESS("Full finance showcase seeded."))
         self.stdout.write("  Financial year 2026 + Semester 1")
-        self.stdout.write("  School accounts: fees / petty / operations")
-        self.stdout.write("  Top-ups + withdrawals (incl. pending)")
-        self.stdout.write("  Store catalogue + stock-in movements")
+        self.stdout.write("  School accounts: fees / petty / operations / pocket money")
+        self.stdout.write("  Votes + fee structure + top-ups/withdrawals (incl. pending)")
+        self.stdout.write("  Store catalogue + stock-in + supplier payments")
+        self.stdout.write("  Daraja settings singleton (disabled sandbox)")
