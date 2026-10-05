@@ -1,0 +1,104 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}Suppliers · Store{% endblock %}
+{% block header_title %}Suppliers{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:store_management' %}" class="btn-ghost">← Store</a>
+<a href="{% url 'billing:store_stock_in_out' %}" class="btn-ghost">Stock in &amp; out</a>
+{% endblock %}
+
+{% block sidebar_page_nav %}
+{% include "components/store_nav.html" %}
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner anim-rise">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">{{ module.meta }}</p>
+    <h2 class="sa-hero-title">{{ module.title }}</h2>
+    <p class="sa-hero-copy">{{ module.copy }}</p>
+  </div>
+</section>
+
+<section class="sa-stats">
+  <article class="sa-stat">
+    <p class="sa-stat-label">Registered suppliers</p>
+    <p class="sa-stat-value">{{ supplier_count }}</p>
+    <p class="sa-stat-meta">{{ active_count }} active</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Open payments</p>
+    <p class="sa-stat-value is-accent">{{ open_payment_total }}</p>
+    <p class="sa-stat-meta">Deliveries not fully paid</p>
+  </article>
+</section>
+
+<section class="sa-section">
+  <div class="sa-section-head">
+    <div>
+      <h3 class="sa-section-title">All suppliers</h3>
+      <p class="sa-section-copy">Open a supplier account to review deliveries, returns, and payment status.</p>
+    </div>
+  </div>
+
+  {% if suppliers %}
+  <div class="sa-table-wrap">
+    <table class="sa-table">
+      <thead>
+        <tr>
+          <th>Supplier</th>
+          <th>Phone</th>
+          <th>Deliveries</th>
+          <th>Returns</th>
+          <th>Open payments</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in suppliers %}
+        <tr class="{% if not row.is_active %}is-muted-row{% endif %}">
+          <td>
+            <p class="sa-table-primary">
+              <a href="{% url 'billing:store_supplier_detail' row.id %}" class="sa-account-row-link">{{ row.name }}</a>
+            </p>
+            <p class="sa-table-secondary">Supplier account</p>
+          </td>
+          <td>
+            <p class="sa-table-primary font-mono text-sm">{{ row.phone_number }}</p>
+          </td>
+          <td>{{ row.delivery_count }}</td>
+          <td>{{ row.return_count }}</td>
+          <td>
+            {% if row.open_payments %}
+            <span class="sa-badge is-pending">{{ row.open_payments }} open</span>
+            {% else %}
+            <span class="text-sm text-ink-400">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if row.is_active %}
+            <span class="sa-badge is-active">Active</span>
+            {% else %}
+            <span class="sa-badge is-suspended">Inactive</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="{% url 'billing:store_supplier_detail' row.id %}" class="btn-ghost btn-compact">Open account</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="sa-empty">
+    <div class="sa-empty-mark" aria-hidden="true">S</div>
+    <h4 class="sa-empty-title">No suppliers yet</h4>
+    <p class="sa-empty-copy">Suppliers are registered automatically when you record stock in or return stock to a supplier.</p>
+    <a href="{% url 'billing:store_stock_in_out' %}" class="btn-primary">Stock in &amp; out</a>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

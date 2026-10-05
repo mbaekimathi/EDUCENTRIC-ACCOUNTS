@@ -45,7 +45,7 @@
 </a>
 
 <a href="{% url 'billing:school_accounts' %}"
-   class="app-nav-link"
+   class="app-nav-link {% if request.resolver_match.url_name == 'school_accounts' or request.resolver_match.url_name == 'school_account_detail' %}is-active{% endif %}"
    :title="sidebarCollapsed ? 'School accounts' : null"
    @click="sidebarOpen = false">
   <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
@@ -53,6 +53,17 @@
     <path d="M4 19h16M9 19v-5h6v5" stroke-linecap="round" stroke-linejoin="round"/>
   </svg>
   <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">School accounts</span>
+</a>
+
+<a href="{% url 'billing:reports' %}"
+   class="app-nav-link {% if request.resolver_match.url_name == 'reports' %}is-active{% endif %}"
+   :title="sidebarCollapsed ? 'Reports' : null"
+   @click="sidebarOpen = false">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <path d="M7 4h10a1 1 0 0 1 1 1v14l-3-1.5L12 19l-3-1.5L6 19V5a1 1 0 0 1 1-1Z" stroke-linejoin="round"/>
+    <path d="M9 9h6M9 12h6M9 15h3" stroke-linecap="round"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Reports</span>
 </a>
 
 <p class="app-nav-label app-nav-label-section mb-2 mt-4 px-2" :class="sidebarCollapsed && 'lg:hidden'">Stores</p>

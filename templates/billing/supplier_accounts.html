@@ -1,0 +1,71 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}Supplier accounts · Accounts{% endblock %}
+{% block header_kicker %}Payables{% endblock %}
+{% block header_title %}Supplier accounts{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:invoices' %}" class="btn-ghost">← Billing &amp; invoices</a>
+{% endblock %}
+
+{% block sidebar_page_nav %}
+{% include "components/finance_nav.html" %}
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner anim-rise">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">Payables</p>
+    <h2 class="sa-hero-title">Supplier accounts</h2>
+    <p class="sa-hero-copy">Open a supplier to pay for store deliveries recorded at stock in.</p>
+  </div>
+</section>
+
+<section class="sa-section">
+  <div class="sa-section-head">
+    <div>
+      <h3 class="sa-section-title">Registered suppliers</h3>
+      <p class="sa-section-copy">Click a supplier to view deliveries awaiting payment</p>
+    </div>
+  </div>
+
+  {% if suppliers %}
+  <div class="sa-table-wrap">
+    <table class="sa-table">
+      <thead>
+        <tr>
+          <th>Supplier</th>
+          <th>Phone</th>
+          <th>Pending deliveries</th>
+          <th>Outstanding</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in suppliers %}
+        <tr>
+          <td>
+            <p class="sa-table-primary">{{ row.supplier.name }}</p>
+          </td>
+          <td>{{ row.supplier.phone_number }}</td>
+          <td>{{ row.pending_count }}</td>
+          <td class="is-brand">
+            {% if row.outstanding > 0 %}KES {{ row.outstanding|floatformat:2 }}{% else %}—{% endif %}
+          </td>
+          <td>
+            <a href="{% url 'billing:supplier_account_detail' row.supplier.id %}" class="btn-ghost btn-compact">Open account</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="sa-empty">
+    <div class="sa-empty-mark" aria-hidden="true">S</div>
+    <h4 class="sa-empty-title">No suppliers yet</h4>
+    <p class="sa-empty-copy">Suppliers are registered when you record stock in at the store.</p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

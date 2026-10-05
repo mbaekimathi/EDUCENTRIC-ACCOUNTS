@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from decimal import Decimal
 import json
 
@@ -8,6 +9,7 @@ from django.db.models.functions import Coalesce
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
@@ -39,13 +41,23 @@ from .models import (
     StoreItem,
     StoreStockMovement,
     StoreSupplier,
+    StoreSupplierPayment,
     StkPushRequest,
     allocate_payment_to_charges,
     ensure_store_lookups,
+    generate_supplier_payment_reference_code,
     get_or_create_store_supplier,
     normalize_supplier_phone,
+    school_account_available_balance,
     store_item_quantity_on_hand,
     student_balance,
+)
+from .reports import (
+    REPORT_CATEGORIES,
+    REPORT_TYPE_MAP,
+    SUPPLIER_OPEN_PAYMENT_STATUSES,
+    build_report,
+    parse_report_date,
 )
 from .mpesa import (
     MpesaApiError,
@@ -194,6 +206,12 @@ def dashboard(request):
             "blurb": "School-level fee categories, ledgers, and finance overview.",
             "url_name": "billing:school_accounts",
             "meta": f"{categories.count()} categories",
+        },
+        {
+            "title": "Reports",
+            "blurb": "Generate compliance, revenue, expenditure, and audit reports.",
+            "url_name": "billing:reports",
+            "meta": "Reporting",
         },
         {
             "title": "Store management",
@@ -2048,6 +2066,280 @@ def store_stock_in_out(request):
 
 @portal_access_required
 @require_GET
+def store_suppliers(request):
+    module = STORE_MODULE_MAP["suppliers"]
+    suppliers = (
+        StoreSupplier.objects.annotate(
+            delivery_count=Count(
+                "stock_movements",
+                filter=Q(stock_movements__direction=StoreStockMovement.Direction.IN),
+            ),
+            return_count=Count(
+                "stock_movements",
+                filter=Q(
+                    stock_movements__direction=StoreStockMovement.Direction.OUT,
+                    stock_movements__out_reason=StoreStockMovement.OutReason.RETURN,
+                ),
+            ),
+            open_payments=Count(
+                "stock_movements",
+                filter=Q(
+                    stock_movements__direction=StoreStockMovement.Direction.IN,
+                    stock_movements__payment_status__in=SUPPLIER_OPEN_PAYMENT_STATUSES,
+                ),
+            ),
+        )
+        .order_by("-is_active", "name")
+    )
+    active_count = sum(1 for row in suppliers if row.is_active)
+    open_payment_total = sum(row.open_payments for row in suppliers)
+    return render(
+        request,
+        "billing/store_suppliers.html",
+        _store_workspace_context(
+            module=module,
+            suppliers=suppliers,
+            supplier_count=len(suppliers),
+            active_count=active_count,
+            open_payment_total=open_payment_total,
+        ),
+    )
+
+
+@portal_access_required
+@require_GET
+def store_supplier_detail(request, supplier_id):
+    supplier = get_object_or_404(StoreSupplier, pk=supplier_id)
+    movements = (
+        StoreStockMovement.objects.filter(supplier=supplier)
+        .select_related(
+            "item",
+            "item__expense_category",
+            "destination_station",
+            "created_by",
+        )
+        .order_by("-created_at")
+    )
+    delivery_count = movements.filter(
+        direction=StoreStockMovement.Direction.IN
+    ).count()
+    return_count = movements.filter(
+        direction=StoreStockMovement.Direction.OUT,
+        out_reason=StoreStockMovement.OutReason.RETURN,
+    ).count()
+    open_payments = movements.filter(
+        direction=StoreStockMovement.Direction.IN,
+        payment_status__in=SUPPLIER_OPEN_PAYMENT_STATUSES,
+    ).count()
+    paid_deliveries = movements.filter(
+        direction=StoreStockMovement.Direction.IN,
+        payment_status=StoreStockMovement.PaymentStatus.PAID,
+    ).count()
+    return render(
+        request,
+        "billing/store_supplier_detail.html",
+        _store_workspace_context(
+            module=STORE_MODULE_MAP["suppliers"],
+            supplier=supplier,
+            movements=movements,
+            delivery_count=delivery_count,
+            return_count=return_count,
+            open_payments=open_payments,
+            paid_deliveries=paid_deliveries,
+        ),
+    )
+
+
+@portal_access_required
+@require_GET
+def reports(request):
+    today = timezone.localdate()
+    financial_years = list(
+        FinancialYear.objects.prefetch_related("terms").order_by("-start_date")
+    )
+    current_year = FinancialYear.current() or (
+        financial_years[0] if financial_years else None
+    )
+    current_term = None
+    if current_year is not None:
+        system_current_term = FinancialTerm.current()
+        if (
+            system_current_term is not None
+            and system_current_term.financial_year_id == current_year.id
+        ):
+            current_term = system_current_term
+        else:
+            current_term = (
+                current_year.terms.filter(is_current=True).first()
+                or current_year.terms.order_by("start_date").first()
+            )
+
+    category_key = (request.GET.get("category") or "").strip()
+    report_type = (request.GET.get("report_type") or "").strip()
+    period_mode = (request.GET.get("period_mode") or "").strip() or "academic_year"
+    year_id = (request.GET.get("financial_year_id") or "").strip()
+    term_id = (request.GET.get("financial_term_id") or "").strip()
+    custom_from = parse_report_date(request.GET.get("date_from"))
+    custom_to = parse_report_date(request.GET.get("date_to"))
+    generated = "report_type" in request.GET
+    error = None
+    selected_report = None
+    selected_category = None
+    report_result = None
+    selected_year = None
+    selected_term = None
+    date_from = None
+    date_to = None
+    period_label = ""
+
+    if period_mode not in {"academic_year", "academic_term", "custom"}:
+        period_mode = "academic_year"
+
+    if year_id.isdigit():
+        selected_year = next(
+            (year for year in financial_years if year.id == int(year_id)), None
+        )
+    if selected_year is None:
+        selected_year = current_year
+
+    if selected_year is not None and term_id.isdigit():
+        selected_term = selected_year.terms.filter(pk=int(term_id)).first()
+    if selected_term is None and selected_year is not None:
+        if (
+            current_term is not None
+            and current_term.financial_year_id == selected_year.id
+        ):
+            selected_term = current_term
+        else:
+            selected_term = selected_year.terms.order_by("start_date").first()
+
+    category_map = {item["key"]: item for item in REPORT_CATEGORIES}
+    if category_key in category_map:
+        selected_category = category_map[category_key]
+
+    def resolve_period():
+        nonlocal date_from, date_to, period_label, selected_year, selected_term
+        if period_mode == "academic_year":
+            if selected_year is None:
+                return "Select an academic year."
+            date_from = selected_year.start_date
+            date_to = selected_year.end_date
+            period_label = f"Academic year {selected_year.display_name}"
+            return None
+        if period_mode == "academic_term":
+            if selected_year is None:
+                return "Select an academic year."
+            if selected_term is None:
+                return "Select a term for that academic year."
+            date_from = selected_term.start_date
+            date_to = selected_term.end_date
+            period_label = (
+                f"{selected_term.name} · {selected_year.display_name}"
+            )
+            return None
+        # custom
+        date_from = custom_from
+        date_to = custom_to
+        if date_from is None or date_to is None:
+            return "Enter both custom from and to dates."
+        if date_from > date_to:
+            return "The start date must be on or before the end date."
+        period_label = f"Custom · {date_from.isoformat()} to {date_to.isoformat()}"
+        return None
+
+    if generated:
+        if not report_type:
+            error = "Select the type of report to generate."
+        elif report_type not in REPORT_TYPE_MAP:
+            error = "Choose a valid report type."
+        else:
+            selected_report = REPORT_TYPE_MAP[report_type]
+            selected_category = category_map.get(selected_report["category_key"])
+            category_key = selected_report["category_key"]
+            error = resolve_period()
+            if error is None:
+                try:
+                    report_result = build_report(report_type, date_from, date_to)
+                except ValueError:
+                    error = "Choose a valid report type."
+    else:
+        # Defaults for the filter form before generate.
+        if period_mode == "custom":
+            date_from = custom_from or (
+                current_year.start_date if current_year else today - timedelta(days=30)
+            )
+            date_to = custom_to or (current_year.end_date if current_year else today)
+            period_label = "Custom date range"
+        elif period_mode == "academic_term" and selected_term is not None:
+            date_from = selected_term.start_date
+            date_to = selected_term.end_date
+            period_label = f"{selected_term.name} · {selected_year.display_name}"
+        elif selected_year is not None:
+            date_from = selected_year.start_date
+            date_to = selected_year.end_date
+            period_label = f"Academic year {selected_year.display_name}"
+        else:
+            date_from = today - timedelta(days=30)
+            date_to = today
+            period_label = "Custom date range"
+            period_mode = "custom"
+
+    if error:
+        messages.error(request, error)
+
+    available_reports = selected_category["reports"] if selected_category else []
+    years_payload = [
+        {
+            "id": year.id,
+            "label": year.display_name,
+            "start": year.start_date.isoformat(),
+            "end": year.end_date.isoformat(),
+            "terms": [
+                {
+                    "id": term.id,
+                    "label": term.name,
+                    "start": term.start_date.isoformat(),
+                    "end": term.end_date.isoformat(),
+                }
+                for term in year.terms.all()
+            ],
+        }
+        for year in financial_years
+    ]
+
+    return render(
+        request,
+        "billing/reports.html",
+        {
+            "report_categories": REPORT_CATEGORIES,
+            "selected_category": selected_category,
+            "category_key": category_key,
+            "available_reports": available_reports,
+            "selected_report": selected_report,
+            "report_type": report_type,
+            "period_mode": period_mode,
+            "financial_years": financial_years,
+            "years_payload_json": json.dumps(years_payload),
+            "selected_year_id": selected_year.id if selected_year else "",
+            "selected_term_id": selected_term.id if selected_term else "",
+            "date_from": date_from.isoformat() if date_from else "",
+            "date_to": date_to.isoformat() if date_to else "",
+            "period_label": period_label,
+            "generated": generated and error is None and report_result is not None,
+            "report_result": report_result,
+            "row_count": len(report_result["rows"]) if report_result else 0,
+        },
+    )
+
+
+@portal_access_required
+@require_GET
+def store_reports(request):
+    return redirect("billing:reports")
+
+
+@portal_access_required
+@require_GET
 def store_supplier_suggest(request):
     q = (request.GET.get("q") or "").strip()
     if len(q) < 2:
@@ -2091,6 +2383,25 @@ def store_stock_delivery_receipt(request, movement_id):
     )
 
 
+PAYABLE_SUPPLIER_STATUSES = {
+    StoreStockMovement.PaymentStatus.UNPAID,
+    StoreStockMovement.PaymentStatus.PENDING,
+    StoreStockMovement.PaymentStatus.PARTIAL,
+}
+
+
+def _supplier_payable_movements(supplier_id):
+    return (
+        StoreStockMovement.objects.filter(
+            supplier_id=supplier_id,
+            direction=StoreStockMovement.Direction.IN,
+            payment_status__in=PAYABLE_SUPPLIER_STATUSES,
+        )
+        .select_related("item", "item__expense_category")
+        .order_by("-created_at")
+    )
+
+
 @portal_access_required
 @require_GET
 def invoices(request):
@@ -2108,6 +2419,7 @@ def invoices(request):
         payment.student = student_map.get(payment.student_id)
 
     totals = Payment.objects.aggregate(total=Sum("amount"))
+    supplier_count = StoreSupplier.objects.filter(is_active=True).count()
     return render(
         request,
         "billing/invoices.html",
@@ -2117,6 +2429,213 @@ def invoices(request):
             "payments_total": totals["total"] or Decimal("0.00"),
             "invoice_count": FeeCharge.objects.count(),
             "payment_count": Payment.objects.count(),
+            "supplier_count": supplier_count,
+        },
+    )
+
+
+@portal_access_required
+@require_GET
+def supplier_accounts(request):
+    suppliers = []
+    for supplier in StoreSupplier.objects.filter(is_active=True).order_by("name"):
+        payable = _supplier_payable_movements(supplier.id)
+        pending_count = payable.count()
+        outstanding = Decimal("0.00")
+        for movement in payable:
+            if movement.invoice_amount is not None:
+                outstanding += movement.amount_outstanding or Decimal("0.00")
+        suppliers.append(
+            {
+                "supplier": supplier,
+                "pending_count": pending_count,
+                "outstanding": outstanding,
+            }
+        )
+    return render(
+        request,
+        "billing/supplier_accounts.html",
+        {"suppliers": suppliers},
+    )
+
+
+@portal_access_required
+@require_http_methods(["GET", "POST"])
+def supplier_account_detail(request, supplier_id):
+    supplier = get_object_or_404(StoreSupplier, pk=supplier_id, is_active=True)
+    open_pay_modal = False
+    pay_form = {
+        "movement_id": "",
+        "account_id": "",
+        "amount": "",
+        "invoice_amount": "",
+        "method": "",
+        "item_label": "",
+        "needs_invoice_amount": False,
+    }
+    preview_reference = generate_supplier_payment_reference_code()
+
+    payable_movements = list(_supplier_payable_movements(supplier.id))
+    for movement in payable_movements:
+        movement.outstanding_display = movement.amount_outstanding
+
+    pay_accounts = []
+    for account in SchoolAccount.objects.filter(is_active=True).order_by(
+        "category", "name"
+    ):
+        balance = school_account_available_balance(account)
+        pay_accounts.append({"account": account, "balance": balance})
+
+    if request.method == "POST":
+        movement_id = (request.POST.get("movement_id") or "").strip()
+        account_id = (request.POST.get("account_id") or "").strip()
+        amount_raw = (request.POST.get("amount") or "").strip()
+        invoice_raw = (request.POST.get("invoice_amount") or "").strip()
+        method = upper_input(request.POST.get("method"))
+        pay_form.update(
+            {
+                "movement_id": movement_id,
+                "account_id": account_id,
+                "amount": amount_raw,
+                "invoice_amount": invoice_raw,
+                "method": method,
+            }
+        )
+        error = None
+        movement = None
+        account = None
+        amount = None
+        invoice_amount = None
+
+        if not movement_id.isdigit():
+            error = "Select a delivery to pay."
+        else:
+            movement = get_object_or_404(
+                StoreStockMovement,
+                pk=int(movement_id),
+                supplier=supplier,
+                direction=StoreStockMovement.Direction.IN,
+            )
+            pay_form["item_label"] = movement.item.name
+            pay_form["needs_invoice_amount"] = movement.invoice_amount is None
+            if movement.payment_status not in PAYABLE_SUPPLIER_STATUSES:
+                error = "That delivery is already paid."
+
+        if error is None and not account_id.isdigit():
+            error = "Select the account to pay from."
+        elif error is None:
+            account = SchoolAccount.objects.filter(pk=int(account_id), is_active=True).first()
+            if account is None:
+                error = "Select a valid school account."
+
+        if error is None:
+            try:
+                amount = Decimal(amount_raw)
+                if amount <= 0:
+                    raise ValueError
+            except Exception:
+                error = "Enter a valid payment amount."
+
+        if error is None and movement.invoice_amount is None:
+            if not invoice_raw:
+                error = "Enter the invoice amount for this delivery."
+            else:
+                try:
+                    invoice_amount = Decimal(invoice_raw)
+                    if invoice_amount <= 0:
+                        raise ValueError
+                except Exception:
+                    error = "Enter a valid invoice amount."
+        elif error is None:
+            invoice_amount = movement.invoice_amount
+
+        if error is None and amount > (movement.amount_outstanding or invoice_amount):
+            error = "Payment amount exceeds the outstanding balance for this delivery."
+
+        valid_methods = {choice for choice, _ in AccountWithdraw.Method.choices}
+        if error is None and method not in valid_methods:
+            error = "Select a valid payment method."
+
+        if error is None:
+            available = school_account_available_balance(account)
+            if amount > available:
+                error = f"Insufficient balance in {account.name} (KES {available:,.2f} available)."
+
+        if error:
+            messages.error(request, error)
+            open_pay_modal = True
+            preview_reference = generate_supplier_payment_reference_code()
+        else:
+            with transaction.atomic():
+                locked_movement = StoreStockMovement.objects.select_for_update().get(
+                    pk=movement.pk
+                )
+                update_fields = ["amount_paid", "payment_status"]
+                if locked_movement.invoice_amount is None:
+                    locked_movement.invoice_amount = invoice_amount
+                    update_fields.append("invoice_amount")
+                locked_movement.amount_paid = (
+                    locked_movement.amount_paid or Decimal("0.00")
+                ) + amount
+                locked_movement.refresh_payment_status(save=False)
+                locked_movement.save(update_fields=update_fields)
+
+                payment = StoreSupplierPayment(
+                    movement=locked_movement,
+                    account=account,
+                    amount=amount,
+                    method=method,
+                    created_by=request.user,
+                )
+                payment.save()
+
+                withdrawal = AccountWithdraw(
+                    account=account,
+                    amount=amount,
+                    method=method,
+                    payee=supplier.name,
+                    description=f"Supplier payment · {locked_movement.reference_code}",
+                    reference_number=payment.reference_number,
+                    status=AccountWithdraw.Status.APPROVED,
+                    created_by=request.user,
+                )
+                withdrawal.save()
+                payment.withdrawal = withdrawal
+                payment.save(update_fields=["withdrawal"])
+
+            messages.success(
+                request,
+                f"Paid KES {amount:,.2f} to {supplier.name} ({payment.reference_code}).",
+            )
+            return redirect("billing:supplier_account_detail", supplier_id=supplier.id)
+
+    if open_pay_modal and pay_form["movement_id"] and not pay_form["item_label"]:
+        match = next(
+            (m for m in payable_movements if str(m.id) == str(pay_form["movement_id"])),
+            None,
+        )
+        if match:
+            pay_form["item_label"] = match.item.name
+            pay_form["needs_invoice_amount"] = match.invoice_amount is None
+
+    recent_payments = (
+        StoreSupplierPayment.objects.filter(movement__supplier=supplier)
+        .select_related("movement", "movement__item", "account")
+        .order_by("-created_at")[:15]
+    )
+
+    return render(
+        request,
+        "billing/supplier_account_detail.html",
+        {
+            "supplier": supplier,
+            "payable_movements": payable_movements,
+            "pay_accounts": pay_accounts,
+            "pay_methods": AccountWithdraw.Method.choices,
+            "open_pay_modal": open_pay_modal,
+            "pay_form": pay_form,
+            "preview_reference": preview_reference,
+            "recent_payments": recent_payments,
         },
     )
 

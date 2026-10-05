@@ -1,0 +1,550 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}Reports · Accounts{% endblock %}
+{% block header_title %}Reports{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:dashboard' %}" class="btn-ghost">← Dashboard</a>
+{% endblock %}
+
+{% block sidebar_page_nav %}
+{% include "components/finance_nav.html" %}
+{% endblock %}
+
+{% block content %}
+<style>
+  .rp-shell { display: grid; gap: 1rem; }
+  .rp-filter {
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    background: rgba(255,255,255,0.92);
+    border-radius: 1.1rem;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
+    padding: 0.9rem 1rem;
+  }
+  .rp-step {
+    display: grid;
+    gap: 0.65rem 0.75rem;
+    align-items: end;
+  }
+  .rp-step + .rp-step {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid rgba(15, 23, 42, 0.06);
+  }
+  .rp-step-title {
+    grid-column: 1 / -1;
+    margin: 0;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(15, 23, 42, 0.4);
+  }
+  .rp-step-report { grid-template-columns: 1fr 1.2fr; }
+  .rp-step-period { grid-template-columns: auto 1fr 1fr auto; }
+  .rp-step-period.is-year { grid-template-columns: auto 1fr auto; }
+  .rp-step-period.is-custom { grid-template-columns: auto 1fr 1fr auto; }
+  .rp-step-period.is-term { grid-template-columns: auto 1fr 1fr auto; }
+  .rp-label {
+    display: block;
+    margin-bottom: 0.3rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(15, 23, 42, 0.45);
+  }
+  .rp-field .field-input,
+  .rp-field select.field-input,
+  .rp-field input.field-input {
+    min-height: 2.4rem;
+    padding-top: 0.45rem;
+    padding-bottom: 0.45rem;
+    font-size: 0.9rem;
+  }
+  .rp-modes {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    padding: 0.2rem;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.04);
+  }
+  .rp-mode {
+    border: 0;
+    background: transparent;
+    color: rgba(15, 23, 42, 0.65);
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.42rem 0.75rem;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .rp-mode.is-active {
+    background: #0f172a;
+    color: #fff;
+  }
+  .rp-actions {
+    display: flex;
+    gap: 0.45rem;
+    align-items: end;
+  }
+  .rp-actions .btn-primary,
+  .rp-actions .btn-ghost {
+    min-height: 2.4rem;
+    padding-inline: 0.95rem;
+  }
+  .rp-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem 0.7rem;
+    align-items: center;
+    margin-top: 0.7rem;
+    font-size: 0.82rem;
+    color: rgba(15, 23, 42, 0.62);
+  }
+  .rp-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.28rem 0.65rem;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.04);
+    color: rgba(15, 23, 42, 0.78);
+    font-weight: 600;
+  }
+  .rp-chip strong { font-weight: 700; color: #0f172a; }
+  .rp-catalogue {
+    display: grid;
+    gap: 0.65rem;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .rp-cat {
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    background: rgba(255,255,255,0.85);
+    border-radius: 0.95rem;
+    padding: 0.8rem 0.85rem;
+    min-height: 100%;
+  }
+  .rp-cat h4 {
+    margin: 0;
+    font-family: inherit;
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1.25;
+  }
+  .rp-cat p {
+    margin: 0.25rem 0 0;
+    font-size: 0.75rem;
+    color: rgba(15, 23, 42, 0.55);
+    line-height: 1.35;
+  }
+  .rp-cat ol {
+    margin: 0.55rem 0 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: rp-item;
+    display: grid;
+    gap: 0.28rem;
+  }
+  .rp-cat li {
+    counter-increment: rp-item;
+    font-size: 0.78rem;
+    color: rgba(15, 23, 42, 0.72);
+    padding-left: 1.25rem;
+    position: relative;
+  }
+  .rp-cat li::before {
+    content: counter(rp-item) ".";
+    position: absolute;
+    left: 0;
+    top: 0;
+    font-weight: 700;
+    color: rgba(15, 23, 42, 0.4);
+  }
+  .rp-result-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: end;
+    margin-bottom: 0.75rem;
+  }
+  .rp-result-head h3 {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #0f172a;
+  }
+  .rp-result-head p {
+    margin: 0.2rem 0 0;
+    font-size: 0.82rem;
+    color: rgba(15, 23, 42, 0.55);
+  }
+  .rp-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    gap: 0.55rem;
+    margin-bottom: 0.85rem;
+  }
+  .rp-stat {
+    border: 1px solid rgba(15, 23, 42, 0.07);
+    background: rgba(255,255,255,0.9);
+    border-radius: 0.85rem;
+    padding: 0.65rem 0.75rem;
+  }
+  .rp-stat-label {
+    margin: 0;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(15, 23, 42, 0.45);
+  }
+  .rp-stat-value {
+    margin: 0.2rem 0 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #0f172a;
+  }
+  .rp-stat-value.is-brand { color: #0f766e; }
+  .rp-stat-value.is-accent { color: #b45309; }
+  @media (max-width: 1100px) {
+    .rp-step-report,
+    .rp-step-period,
+    .rp-step-period.is-year,
+    .rp-step-period.is-term,
+    .rp-step-period.is-custom { grid-template-columns: 1fr 1fr; }
+    .rp-actions { grid-column: 1 / -1; justify-content: flex-start; }
+    .rp-catalogue { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 720px) {
+    .rp-step-report,
+    .rp-step-period,
+    .rp-step-period.is-year,
+    .rp-step-period.is-term,
+    .rp-step-period.is-custom,
+    .rp-catalogue { grid-template-columns: 1fr; }
+    .rp-modes { width: 100%; }
+    .rp-mode { flex: 1; text-align: center; }
+  }
+</style>
+
+<div class="rp-shell anim-rise">
+  <form method="get" action="{% url 'billing:reports' %}" class="rp-filter" id="reports-form">
+    <div class="rp-step rp-step-report">
+      <p class="rp-step-title">1. Choose report</p>
+      <label class="rp-field">
+        <span class="rp-label">Category</span>
+        <select name="category" id="report-category" required class="field-input">
+          <option value="">Select category</option>
+          {% for category in report_categories %}
+          <option value="{{ category.key }}" {% if category_key == category.key %}selected{% endif %}>
+            {{ forloop.counter }}. {{ category.short_label }}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label class="rp-field">
+        <span class="rp-label">Report</span>
+        <select name="report_type" id="report-type" required class="field-input" {% if not available_reports %}disabled{% endif %}>
+          <option value="">{% if available_reports %}Select report{% else %}Select category first{% endif %}</option>
+          {% for item in available_reports %}
+          <option value="{{ item.key }}" {% if report_type == item.key %}selected{% endif %}>{{ forloop.counter }}. {{ item.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+
+    <div class="rp-step rp-step-period" id="period-step">
+      <p class="rp-step-title">2. Set period</p>
+      <div>
+        <span class="rp-label">Mode</span>
+        <div class="rp-modes" role="group" aria-label="Period mode">
+          <button type="button" class="rp-mode {% if period_mode == 'academic_year' %}is-active{% endif %}" data-period-mode="academic_year">Year</button>
+          <button type="button" class="rp-mode {% if period_mode == 'academic_term' %}is-active{% endif %}" data-period-mode="academic_term">Year + term</button>
+          <button type="button" class="rp-mode {% if period_mode == 'custom' %}is-active{% endif %}" data-period-mode="custom">Custom</button>
+        </div>
+        <input type="hidden" name="period_mode" id="period-mode" value="{{ period_mode }}">
+      </div>
+
+      <label class="rp-field" id="year-field-wrap">
+        <span class="rp-label">Academic year</span>
+        <select name="financial_year_id" id="financial-year" class="field-input">
+          <option value="">Select year</option>
+          {% for year in financial_years %}
+          <option value="{{ year.id }}" {% if selected_year_id == year.id %}selected{% endif %}>
+            {{ year.display_name }}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label class="rp-field" id="term-field-wrap">
+        <span class="rp-label">Term</span>
+        <select name="financial_term_id" id="financial-term" class="field-input">
+          <option value="">Select term</option>
+        </select>
+      </label>
+
+      <label class="rp-field" id="date-from-wrap">
+        <span class="rp-label">From</span>
+        <input type="date" name="date_from" id="date-from" value="{{ date_from }}" class="field-input">
+      </label>
+
+      <label class="rp-field" id="date-to-wrap">
+        <span class="rp-label">To</span>
+        <input type="date" name="date_to" id="date-to" value="{{ date_to }}" class="field-input">
+      </label>
+
+      <div class="rp-actions">
+        <button type="submit" class="btn-primary">Generate</button>
+        <a href="{% url 'billing:reports' %}" class="btn-ghost">Reset</a>
+      </div>
+    </div>
+
+    <div class="rp-meta">
+      <span class="rp-chip" id="period-preview">
+        {% if period_label %}
+        <strong>{{ period_label }}</strong>
+        {% if date_from and date_to %} · {{ date_from }} → {{ date_to }}{% endif %}
+        {% else %}
+        1. Choose report · 2. Set period · Generate
+        {% endif %}
+      </span>
+      {% if selected_report %}
+      <span>{{ selected_report.description }}</span>
+      {% endif %}
+    </div>
+  </form>
+
+  {% if not generated %}
+  <div class="rp-catalogue">
+    {% for category in report_categories %}
+    <article class="rp-cat">
+      <h4>{{ forloop.counter }}. {{ category.short_label }}</h4>
+      <p>{{ category.description }}</p>
+      <ol>
+        {% for item in category.reports %}
+        <li>{{ item.label }}</li>
+        {% endfor %}
+      </ol>
+    </article>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if generated %}
+  {% if report_result.support_note %}
+  <p class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{{ report_result.support_note }}</p>
+  {% endif %}
+
+  <div class="rp-stats">
+    {% for item in report_result.summary %}
+    <article class="rp-stat">
+      <p class="rp-stat-label">{{ item.label }}</p>
+      <p class="rp-stat-value {% if item.tone == 'brand' %}is-brand{% elif item.tone == 'accent' %}is-accent{% endif %}">{{ item.value }}</p>
+    </article>
+    {% endfor %}
+    <article class="rp-stat">
+      <p class="rp-stat-label">Rows</p>
+      <p class="rp-stat-value">{{ row_count }}</p>
+    </article>
+  </div>
+
+  <section class="sa-section" style="margin-top:0; padding-top:0.85rem;">
+    <div class="rp-result-head">
+      <div>
+        <h3>{{ selected_report.label }}</h3>
+        <p>{{ selected_report.category_label }} · {{ period_label }} · {{ date_from }} to {{ date_to }}</p>
+      </div>
+      <button type="submit" form="reports-form" class="btn-ghost btn-compact">Refresh</button>
+    </div>
+
+    {% if report_result.rows %}
+    <div class="sa-table-wrap">
+      <table class="sa-table">
+        <thead>
+          <tr>
+            {% for column in report_result.columns %}
+            <th>{{ column }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in report_result.rows %}
+          <tr>
+            {% for cell in row %}
+            <td>{{ cell }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="sa-empty">
+      <div class="sa-empty-mark" aria-hidden="true">R</div>
+      <h4 class="sa-empty-title">No results for this period</h4>
+      <p class="sa-empty-copy">Try another report or a wider period.</p>
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  var categorySelect = document.getElementById("report-category");
+  var reportSelect = document.getElementById("report-type");
+  var periodMode = document.getElementById("period-mode");
+  var yearSelect = document.getElementById("financial-year");
+  var termSelect = document.getElementById("financial-term");
+  var yearWrap = document.getElementById("year-field-wrap");
+  var termWrap = document.getElementById("term-field-wrap");
+  var fromWrap = document.getElementById("date-from-wrap");
+  var toWrap = document.getElementById("date-to-wrap");
+  var dateFrom = document.getElementById("date-from");
+  var dateTo = document.getElementById("date-to");
+  var periodPreview = document.getElementById("period-preview");
+  var periodStep = document.getElementById("period-step");
+  var form = document.getElementById("reports-form");
+  var modeButtons = document.querySelectorAll("[data-period-mode]");
+  if (!categorySelect || !reportSelect || !form || !periodMode) return;
+
+  var catalogue = {
+    {% for category in report_categories %}
+    "{{ category.key }}": [
+      {% for item in category.reports %}
+      { key: "{{ item.key }}", label: "{{ item.label|escapejs }}" }{% if not forloop.last %},{% endif %}
+      {% endfor %}
+    ]{% if not forloop.last %},{% endif %}
+    {% endfor %}
+  };
+  var years = {{ years_payload_json|safe }};
+  var selectedTermId = "{{ selected_term_id|default:''|escapejs }}";
+
+  function fillReports(categoryKey, selectedKey) {
+    var options = catalogue[categoryKey] || [];
+    reportSelect.innerHTML = "";
+    var placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = options.length ? "Select report" : "Select category first";
+    reportSelect.appendChild(placeholder);
+    options.forEach(function (item, index) {
+      var option = document.createElement("option");
+      option.value = item.key;
+      option.textContent = (index + 1) + ". " + item.label;
+      if (selectedKey && selectedKey === item.key) option.selected = true;
+      reportSelect.appendChild(option);
+    });
+    reportSelect.disabled = !options.length;
+  }
+
+  function findYear(yearId) {
+    return years.find(function (year) { return String(year.id) === String(yearId); }) || null;
+  }
+
+  function fillTerms(yearId, keepTermId) {
+    var year = findYear(yearId);
+    var terms = year ? year.terms : [];
+    termSelect.innerHTML = "";
+    var placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = terms.length ? "Select term" : "No terms";
+    termSelect.appendChild(placeholder);
+    terms.forEach(function (term) {
+      var option = document.createElement("option");
+      option.value = term.id;
+      option.textContent = term.label;
+      if (keepTermId && String(keepTermId) === String(term.id)) option.selected = true;
+      termSelect.appendChild(option);
+    });
+    if (!termSelect.value && terms.length) termSelect.value = String(terms[0].id);
+  }
+
+  function setVisible(el, visible) {
+    if (!el) return;
+    el.hidden = !visible;
+  }
+
+  function syncModeButtons() {
+    modeButtons.forEach(function (btn) {
+      btn.classList.toggle("is-active", btn.getAttribute("data-period-mode") === periodMode.value);
+    });
+  }
+
+  function syncPeriodFields() {
+    var mode = periodMode.value;
+    var isYear = mode === "academic_year";
+    var isTerm = mode === "academic_term";
+    var isCustom = mode === "custom";
+
+    setVisible(yearWrap, isYear || isTerm);
+    setVisible(termWrap, isTerm);
+    setVisible(fromWrap, isCustom);
+    setVisible(toWrap, isCustom);
+
+    yearSelect.required = isYear || isTerm;
+    termSelect.required = isTerm;
+    dateFrom.required = isCustom;
+    dateTo.required = isCustom;
+
+    if (periodStep) {
+      periodStep.classList.remove("is-year", "is-term", "is-custom");
+      periodStep.classList.add(isYear ? "is-year" : isTerm ? "is-term" : "is-custom");
+    }
+
+    if ((isYear || isTerm) && yearSelect.value) fillTerms(yearSelect.value, selectedTermId);
+    syncModeButtons();
+    updatePreview();
+  }
+
+  function updatePreview() {
+    var mode = periodMode.value;
+    var year = findYear(yearSelect.value);
+    if (mode === "academic_year" && year) {
+      periodPreview.innerHTML = "<strong>Academic year " + year.label + "</strong> · " + year.start + " → " + year.end;
+      return;
+    }
+    if (mode === "academic_term" && year) {
+      var term = (year.terms || []).find(function (item) {
+        return String(item.id) === String(termSelect.value);
+      });
+      if (term) {
+        periodPreview.innerHTML = "<strong>" + term.label + " · " + year.label + "</strong> · " + term.start + " → " + term.end;
+        return;
+      }
+    }
+    if (mode === "custom" && dateFrom.value && dateTo.value) {
+      periodPreview.innerHTML = "<strong>Custom</strong> · " + dateFrom.value + " → " + dateTo.value;
+      return;
+    }
+    periodPreview.textContent = "Choose category, report, and period";
+  }
+
+  categorySelect.addEventListener("change", function () {
+    fillReports(categorySelect.value, "");
+  });
+  modeButtons.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      periodMode.value = btn.getAttribute("data-period-mode");
+      selectedTermId = "";
+      syncPeriodFields();
+    });
+  });
+  yearSelect.addEventListener("change", function () {
+    selectedTermId = "";
+    fillTerms(yearSelect.value, "");
+    updatePreview();
+  });
+  termSelect.addEventListener("change", updatePreview);
+  dateFrom.addEventListener("change", updatePreview);
+  dateTo.addEventListener("change", updatePreview);
+
+  syncPeriodFields();
+})();
+</script>
+{% endblock %}

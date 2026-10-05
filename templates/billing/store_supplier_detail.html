@@ -1,0 +1,132 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}{{ supplier.name }} · Supplier account{% endblock %}
+{% block header_kicker %}Supplier account{% endblock %}
+{% block header_title %}{{ supplier.name }}{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'billing:store_suppliers' %}" class="btn-ghost">← All suppliers</a>
+<a href="{% url 'billing:store_stock_in_out' %}" class="btn-ghost">Stock in &amp; out</a>
+{% endblock %}
+
+{% block sidebar_page_nav %}
+{% include "components/store_nav.html" %}
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner anim-rise">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">Supplier account</p>
+    <h2 class="sa-hero-title">{{ supplier.name }}</h2>
+    <p class="sa-hero-copy font-mono text-sm">{{ supplier.phone_number }}</p>
+  </div>
+  <div class="sa-hero__body">
+    <div class="sad-meta">
+      {% if supplier.is_active %}
+      <span class="sa-badge is-active">Active</span>
+      {% else %}
+      <span class="sa-badge is-suspended">Inactive</span>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<section class="sa-stats">
+  <article class="sa-stat">
+    <p class="sa-stat-label">Stock-in deliveries</p>
+    <p class="sa-stat-value">{{ delivery_count }}</p>
+    <p class="sa-stat-meta">Goods received from this supplier</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Open payments</p>
+    <p class="sa-stat-value is-accent">{{ open_payments }}</p>
+    <p class="sa-stat-meta">Not paid, pending, or partial</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Paid deliveries</p>
+    <p class="sa-stat-value is-brand">{{ paid_deliveries }}</p>
+    <p class="sa-stat-meta">{{ return_count }} return{{ return_count|pluralize }} recorded</p>
+  </article>
+</section>
+
+<section class="sa-section">
+  <div class="sa-section-head">
+    <div>
+      <h3 class="sa-section-title">Movement history</h3>
+      <p class="sa-section-copy">Stock in, returns, and payment status linked to this supplier</p>
+    </div>
+  </div>
+
+  {% if movements %}
+  <div class="sa-table-wrap">
+    <table class="sa-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Reference</th>
+          <th>Type</th>
+          <th>Item</th>
+          <th>Quantity</th>
+          <th>Payment</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for movement in movements %}
+        <tr>
+          <td>
+            <p class="sa-table-primary">{{ movement.created_at|date:"d M Y" }}</p>
+            <p class="sa-table-secondary">{{ movement.created_at|time:"H:i" }}</p>
+          </td>
+          <td>
+            <p class="sa-table-primary font-mono text-sm">{{ movement.reference_code }}</p>
+          </td>
+          <td>
+            {% if movement.direction == "IN" %}
+            <span class="sa-badge is-active">Stock in</span>
+            {% elif movement.out_reason == "RETURN" %}
+            <span class="sa-badge is-pending">Return</span>
+            {% else %}
+            <span class="sa-badge is-suspended">{{ movement.get_out_reason_display|default:"Stock out" }}</span>
+            {% endif %}
+          </td>
+          <td>
+            <p class="sa-table-primary">{{ movement.item.name }}</p>
+            <p class="sa-table-secondary">{{ movement.item.reference_code }} · {{ movement.item.expense_category.name }}</p>
+          </td>
+          <td>{{ movement.quantity }} {{ movement.item.get_measure_display|lower }}</td>
+          <td>
+            {% if movement.direction == "IN" and movement.payment_status %}
+              {% if movement.payment_status == "PAID" %}
+              <span class="sa-badge is-active">{{ movement.get_payment_status_display }}</span>
+              {% elif movement.payment_status == "UNPAID" %}
+              <span class="sa-badge is-suspended">{{ movement.get_payment_status_display }}</span>
+              {% else %}
+              <span class="sa-badge is-pending">{{ movement.get_payment_status_display }}</span>
+              {% endif %}
+            {% else %}
+            <span class="text-sm text-ink-400">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if movement.direction == "IN" %}
+            <a href="{% url 'billing:store_stock_delivery_receipt' movement.id %}" class="btn-ghost btn-compact" target="_blank" rel="noopener">Receipt</a>
+            {% else %}
+            <span class="text-sm text-ink-400">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="sa-empty">
+    <div class="sa-empty-mark" aria-hidden="true">M</div>
+    <h4 class="sa-empty-title">No movements yet</h4>
+    <p class="sa-empty-copy">Stock in and return-to-supplier transactions will appear here.</p>
+    <a href="{% url 'billing:store_stock_in_out' %}" class="btn-primary">Record stock movement</a>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

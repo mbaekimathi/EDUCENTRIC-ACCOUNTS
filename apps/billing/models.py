@@ -259,6 +259,7 @@ class SchoolAccount(models.Model):
         STUDENT_FEES = "STUDENT_FEES", "Student fees"
         POCKET_MONEY = "POCKET_MONEY", "Pocket money"
         PETTY_CASHBOOK = "PETTY_CASHBOOK", "Petty cashbook"
+        CAPITATION = "CAPITATION", "Capitation grant"
         OPERATIONS = "OPERATIONS", "Operations"
         CAPITAL = "CAPITAL", "Capital"
         OTHER = "OTHER", "Other"
@@ -1254,6 +1255,18 @@ class StoreStockMovement(models.Model):
         blank=True,
         related_name="stock_transfers_received",
     )
+    invoice_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    amount_paid = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
     notes = models.CharField(max_length=255, blank=True)
     reference_code = models.CharField(max_length=40, unique=True)
     created_by = models.ForeignKey(
@@ -1271,6 +1284,35 @@ class StoreStockMovement(models.Model):
 
     def __str__(self):
         return f"{self.reference_code} · {self.get_direction_display()}"
+
+    @property
+    def amount_outstanding(self):
+        if self.invoice_amount is None:
+            return None
+        return max(self.invoice_amount - (self.amount_paid or Decimal("0.00")), Decimal("0.00"))
+
+    def refresh_payment_status(self, save=True):
+        if self.direction != self.Direction.IN:
+            return
+        if self.invoice_amount is None:
+            paid = self.amount_paid or Decimal("0.00")
+            if paid <= 0:
+                return
+            self.payment_status = self.PaymentStatus.PARTIAL
+            if save:
+                self.save(update_fields=["payment_status"])
+            return
+        paid = self.amount_paid or Decimal("0.00")
+        if paid <= 0:
+            if self.payment_status == self.PaymentStatus.PAID:
+                self.payment_status = self.PaymentStatus.UNPAID
+        elif paid >= self.invoice_amount:
+            self.payment_status = self.PaymentStatus.PAID
+            self.amount_paid = self.invoice_amount
+        else:
+            self.payment_status = self.PaymentStatus.PARTIAL
+        if save:
+            self.save(update_fields=["payment_status", "amount_paid"])
 
     def save(self, *args, **kwargs):
         if not self.reference_code:
@@ -1308,6 +1350,89 @@ def get_or_create_store_supplier(*, name: str, phone_number: str, user=None):
         supplier.name = cleaned_name
         supplier.save(update_fields=["name", "updated_at"])
     return supplier, False
+
+
+def generate_supplier_payment_reference_code() -> str:
+    import secrets
+
+    stamp = timezone.now().strftime("%Y%m%d")
+    return f"SPY-{stamp}-{secrets.token_hex(3).upper()}"
+
+
+class StoreSupplierPayment(models.Model):
+    """Payment to a supplier for a stock-in delivery."""
+
+    movement = models.ForeignKey(
+        StoreStockMovement,
+        on_delete=models.PROTECT,
+        related_name="supplier_payments",
+    )
+    account = models.ForeignKey(
+        SchoolAccount,
+        on_delete=models.PROTECT,
+        related_name="supplier_payments",
+    )
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    method = models.CharField(max_length=20, choices=AccountWithdraw.Method.choices)
+    reference_number = models.CharField(max_length=120)
+    reference_code = models.CharField(max_length=40, unique=True)
+    withdrawal = models.OneToOneField(
+        AccountWithdraw,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_payment",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="store_supplier_payments_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "accounts_store_supplier_payment"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.reference_code} · {self.amount}"
+
+    def save(self, *args, **kwargs):
+        if not self.reference_code:
+            for _ in range(8):
+                candidate = generate_supplier_payment_reference_code()
+                if not type(self).objects.filter(reference_code=candidate).exists():
+                    self.reference_code = candidate
+                    break
+            if not self.reference_code:
+                self.reference_code = generate_supplier_payment_reference_code()
+        if not self.reference_number:
+            self.reference_number = self.reference_code
+        super().save(*args, **kwargs)
+
+
+def school_account_available_balance(account) -> Decimal:
+    topups = (
+        AccountTopUp.objects.filter(
+            account=account,
+            status=AccountTopUp.Status.APPROVED,
+        ).aggregate(total=Sum("amount"))["total"]
+        or Decimal("0.00")
+    )
+    withdrawals = (
+        AccountWithdraw.objects.filter(
+            account=account,
+            status=AccountWithdraw.Status.APPROVED,
+        ).aggregate(total=Sum("amount"))["total"]
+        or Decimal("0.00")
+    )
+    return topups - withdrawals
 
 
 def store_item_quantity_on_hand(item) -> Decimal:

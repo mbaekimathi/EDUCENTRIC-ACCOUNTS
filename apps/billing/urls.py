@@ -40,6 +40,12 @@ urlpatterns = [
         name="petty_cashbook_detail",
     ),
     path("invoices/", views.invoices, name="invoices"),
+    path("invoices/suppliers/", views.supplier_accounts, name="supplier_accounts"),
+    path(
+        "invoices/suppliers/<int:supplier_id>/",
+        views.supplier_account_detail,
+        name="supplier_account_detail",
+    ),
     path("store-management/", views.store_management, name="store_management"),
     path(
         "store-management/requisitions/",
@@ -87,9 +93,13 @@ urlpatterns = [
     ),
     path(
         "store-management/suppliers/",
-        views.store_section,
-        {"slug": "suppliers"},
+        views.store_suppliers,
         name="store_suppliers",
+    ),
+    path(
+        "store-management/suppliers/<int:supplier_id>/",
+        views.store_supplier_detail,
+        name="store_supplier_detail",
     ),
     path(
         "store-management/stock-audit/",
@@ -97,6 +107,12 @@ urlpatterns = [
         {"slug": "stock-audit"},
         name="store_stock_audit",
     ),
+    path(
+        "store-management/reports/",
+        views.store_reports,
+        name="store_reports",
+    ),
+    path("reports/", views.reports, name="reports"),
     path("school-accounts/", views.school_accounts, name="school_accounts"),
     path(
         "school-accounts/<int:account_id>/",
