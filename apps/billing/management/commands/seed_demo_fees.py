@@ -250,15 +250,39 @@ class Command(BaseCommand):
             },
         )
 
+        from apps.directory.models import AcademicLevel as DirLevel
+
+        level_ids = list(
+            DirLevel.objects.exclude(status="INACTIVE")
+            .order_by("order", "name")
+            .values_list("id", flat=True)[:12]
+        )
+        if not level_ids:
+            level_ids = list(DirLevel.objects.order_by("order", "name").values_list("id", flat=True)[:12])
+
         fees_account, _ = SchoolAccount.objects.get_or_create(
             name="BKC Student Fees Account",
             defaults={
                 "category": SchoolAccount.Category.STUDENT_FEES,
                 "description": "Main tuition and levy collection account",
                 "payment_modes": ["CASH", "MPESA", "BANK"],
+                "academic_level_ids": level_ids,
                 "is_active": True,
             },
         )
+        # Always refresh linked levels so existing demo accounts show First Year… etc.
+        fees_account.academic_level_ids = level_ids
+        fees_account.payment_modes = fees_account.payment_modes or ["CASH", "MPESA", "BANK"]
+        fees_account.is_active = True
+        fees_account.save(
+            update_fields=["academic_level_ids", "payment_modes", "is_active", "updated_at"]
+        )
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Linked {len(level_ids)} academic levels to BKC Student Fees Account"
+            )
+        )
+
         petty, _ = SchoolAccount.objects.get_or_create(
             name="BKC Petty Cashbook",
             defaults={
@@ -359,9 +383,13 @@ class Command(BaseCommand):
                 "category": SchoolAccount.Category.POCKET_MONEY,
                 "description": "Student pocket money float",
                 "payment_modes": ["CASH", "MPESA"],
+                "academic_level_ids": level_ids,
                 "is_active": True,
             },
         )
+        pocket.academic_level_ids = level_ids
+        pocket.is_active = True
+        pocket.save(update_fields=["academic_level_ids", "is_active", "updated_at"])
         AccountTopUp.objects.get_or_create(
             reference_number="BKC-TOP-POCKET-001",
             defaults={
@@ -402,7 +430,9 @@ class Command(BaseCommand):
 
         from apps.directory.models import AcademicLevel as DirLevel
 
-        level_ids = list(DirLevel.objects.values_list("id", flat=True)[:6])
+        # Prefer already-resolved level_ids from account linking above.
+        if not level_ids:
+            level_ids = list(DirLevel.objects.values_list("id", flat=True)[:6])
         fin_term = FinancialTerm.objects.filter(
             financial_year=fy, name="Semester 1"
         ).first() or FinancialTerm.objects.filter(financial_year=fy).first()
@@ -419,6 +449,8 @@ class Command(BaseCommand):
                     "notes": "Best Kenya College demo fee structure",
                 },
             )
+            structure.academic_level_ids = level_ids
+            structure.save(update_fields=["academic_level_ids", "updated_at"])
             for vote in votes:
                 FeeStructureLine.objects.get_or_create(
                     structure=structure,
