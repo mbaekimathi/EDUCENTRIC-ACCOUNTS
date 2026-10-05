@@ -38,3 +38,14 @@ Default login uses Administration employee accounts with role **Accountant** or 
 
 If ADMINISTRATION or CLIENTS crash, Accounts keeps running as long as MySQL is up.
 Accounts does not write admissions/employee tables.
+
+## cPanel capacity
+
+See `scripts/cpanel_capacity_checklist.txt` for Passenger pool size, `.env` flags
+(`LOCAL=False`, `HOSTED_DEBUG=False`, `DB_CONN_MAX_AGE=0`, `HOSTED_SERVE_MEDIA=False`
+after Apache media works), shared `MEDIA_ROOT` / `.htaccess`, and overload guards
+(per-user report lock, report row/period caps, fee-structure apply lock/cap, fee level pagination).
+
+Load test: `python manage.py load_probe --base-url http://127.0.0.1:8002 --users 20`
+
+After deploy: `touch tmp/restart.txt`. Ensure `tmp/django_cache/` is writable.

@@ -1,0 +1,52 @@
+# Capacity checklist for cPanel (16GB dedicated) — Educentric Accounts
+#
+# After deploying code changes (shared FileBasedCache + gzip + media/.htaccess):
+#
+# 1) Setup Python App
+#    - Startup file: passenger_wsgi.py
+#    - Entry point: application
+#    - Passenger MaxPoolSize: 20–25  (≈150–250 MB/worker; leave RAM for MySQL)
+#    - PassengerMinInstances: 2–4   (warm workers; avoid cold-start stampedes)
+#    - Do NOT set MaxPoolSize above ~40 on 16GB — MySQL + OS need headroom
+#
+# 2) .env on hosted
+#    LOCAL=False
+#    HOSTED_DEBUG=False
+#    DB_CONN_MAX_AGE=0
+#    # After media/.htaccess is live and /media/... loads OK:
+#    SERVE_MEDIA=False
+#    # If host offers Redis (or Redis Object Cache):
+#    # REDIS_URL=redis://127.0.0.1:6379/0
+#
+# 3) MySQL (cPanel → phpMyAdmin / MySQL settings if available)
+#    - max_connections ≥ 80 (Passenger pool × 1.5–2)
+#    - Prefer InnoDB buffer pool ~2–4 GB on a 16GB box
+#
+# 4) Static files (required after CSS/JS changes, and after storage backend change)
+#    # Remove old WhiteNoise .gz files (they break CSS on LiteSpeed if re-served)
+#    find staticfiles -name '*.gz' -delete
+#    # Or full rebuild:
+#    python manage.py collectstatic --noinput --clear
+#    touch tmp/restart.txt
+#    Ensure tmp/django_cache/ is writable by the app user
+#    Confirm in browser DevTools → Network: /static/... is 200,
+#    Content-Type text/css (or correct type), body is not binary garbage.
+#
+# 5) Shared media (side-by-side with ADMINISTRATION)
+#    If MEDIA_ROOT points at ADMINISTRATION/media, deploy media/.htaccess there
+#    (PassengerEnabled Off). ACCOUNTS/media/.htaccess only applies to local media.
+#
+# 6) Re-probe
+#    python manage.py load_probe --base-url https://YOUR_DOMAIN --users 40 --rounds 2
+#    Target after tuning: comfortable 30–40 concurrent on the same box.
+#
+# 7) Overload guards (already in code)
+#    - Financial reports: row cap + one-at-a-time lock + soft error (no raw 500)
+#    - Fee structure apply: students×lines cap, per-structure lock, friendly busy errors
+#    - School branding context: cached; no image work on every request
+#    - During peak: generate one report at a time; avoid huge fee-structure applies
+#
+# 8) What NOT to promise
+#    - Unlimited disk does not increase concurrent users
+#    - More RAM alone does not fix a ~RPS ceiling if requests are CPU-bound / sync WSGI
+#    - Huge multi-year reports still belong in a background job for true scale

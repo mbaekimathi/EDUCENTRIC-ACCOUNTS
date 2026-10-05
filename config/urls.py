@@ -20,5 +20,7 @@ urlpatterns = [
     path("accounts-dashboard/", include("apps.billing.urls")),
 ]
 
+# Prefer Apache/Nginx for /media/ (see media/.htaccess). Keep SERVE_MEDIA=True
+# only until that is confirmed, then set SERVE_MEDIA=False in .env.
 if settings.DEBUG or getattr(settings, "SERVE_MEDIA", False):
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -1,9 +1,15 @@
+import time
 from pathlib import Path
 
 from django.conf import settings
 from django.core.cache import cache
 
 from .models import SchoolProfile
+
+_BRAND_CACHE_KEY = "accounts_school_branding_v2"
+_BRAND_CACHE_TTL = 60 * 60  # 1 hour — branding rarely changes
+_BRAND_LOCK_KEY = "accounts_school_branding_lock"
+_BRAND_LOCK_TTL = 30
 
 DEFAULT_BRAND = {
     "school_name": "Educentric Accounts",
@@ -47,30 +53,53 @@ def _logo_url(logo_name):
 
 
 def school_branding(request):
-    brand = cache.get("accounts_school_branding_v2")
-    if brand is None:
-        profile = SchoolProfile.objects.only(
-            "official_name",
-            "display_name",
-            "primary_color",
-            "motto",
-            "school_logo",
-        ).first()
-        if profile:
-            display = profile.display_name or profile.official_name or DEFAULT_BRAND["school_display"]
-            accent = _normalize_color(profile.primary_color, DEFAULT_BRAND["primary_color"])
-            logo_url = _logo_url(profile.school_logo)
-            brand = {
-                "school_name": profile.official_name or DEFAULT_BRAND["school_name"],
-                "school_display": display,
-                "primary_color": accent,
-                "school_accent": accent,
-                "motto": profile.motto or "",
-                "logo_url": logo_url,
-                "brand_initials": _brand_initials(display),
-                "has_logo": bool(logo_url),
-            }
+    brand = cache.get(_BRAND_CACHE_KEY)
+    if brand is not None:
+        return {"brand": brand}
+
+    # Stampede lock: only one worker rebuilds after cache expiry / restart.
+    if not cache.add(_BRAND_LOCK_KEY, "1", _BRAND_LOCK_TTL):
+        time.sleep(0.05)
+        brand = cache.get(_BRAND_CACHE_KEY)
+        if brand is not None:
+            return {"brand": brand}
+        return {"brand": DEFAULT_BRAND.copy()}
+
+    brand = DEFAULT_BRAND.copy()
+    try:
+        cached = cache.get(_BRAND_CACHE_KEY)
+        if cached is not None:
+            brand = cached
         else:
-            brand = DEFAULT_BRAND.copy()
-        cache.set("accounts_school_branding_v2", brand, 300)
+            profile = SchoolProfile.objects.only(
+                "official_name",
+                "display_name",
+                "primary_color",
+                "motto",
+                "school_logo",
+            ).first()
+            if profile:
+                display = (
+                    profile.display_name
+                    or profile.official_name
+                    or DEFAULT_BRAND["school_display"]
+                )
+                accent = _normalize_color(
+                    profile.primary_color, DEFAULT_BRAND["primary_color"]
+                )
+                logo_url = _logo_url(profile.school_logo)
+                brand = {
+                    "school_name": profile.official_name or DEFAULT_BRAND["school_name"],
+                    "school_display": display,
+                    "primary_color": accent,
+                    "school_accent": accent,
+                    "motto": profile.motto or "",
+                    "logo_url": logo_url,
+                    "brand_initials": _brand_initials(display),
+                    "has_logo": bool(logo_url),
+                }
+            cache.set(_BRAND_CACHE_KEY, brand, _BRAND_CACHE_TTL)
+    finally:
+        cache.delete(_BRAND_LOCK_KEY)
+
     return {"brand": brand}

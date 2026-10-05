@@ -3,7 +3,9 @@ from decimal import Decimal
 import json
 
 from django.contrib import messages
-from django.db import transaction
+from django.core.cache import cache
+from django.core.paginator import Paginator
+from django.db import DatabaseError, OperationalError, transaction
 from django.db.models import Count, DecimalField, Q, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import Http404, JsonResponse
@@ -12,6 +14,14 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
+
+# Overload guards (cPanel / sync Passenger workers).
+_FEE_APPLY_MAX_CELLS = 4000
+_FEE_APPLY_LOCK_PREFIX = "accounts_fee_apply:"
+_FEE_APPLY_LOCK_TTL = 90
+_REPORT_LOCK_PREFIX = "accounts_report_build:"
+_REPORT_LOCK_TTL = 180
+_FEE_LEVEL_PAGE_SIZE = 50
 
 from apps.directory.models import AcademicLevel, Student
 from apps.staff.views import portal_access_required
@@ -52,12 +62,15 @@ from .models import (
     store_item_quantity_on_hand,
     student_balance,
 )
+from .portal_counts import get_portal_counts
 from .reports import (
     REPORT_CATEGORIES,
+    REPORT_MAX_ROWS,
     REPORT_TYPE_MAP,
     SUPPLIER_OPEN_PAYMENT_STATUSES,
     build_report,
     parse_report_date,
+    validate_report_period,
 )
 from .mpesa import (
     MpesaApiError,
@@ -174,7 +187,9 @@ def dashboard(request):
     recent_payments = Payment.objects.select_related("charge", "received_by")[:8]
     recent_charges = FeeCharge.objects.select_related("category")[:8]
     categories = FeeCategory.objects.filter(is_active=True).order_by("name")
-    learner_count = Student.objects.filter(is_suspended=False).count()
+    portal_counts = get_portal_counts()
+    learner_count = portal_counts["learner_count"]
+    category_count = portal_counts["active_category_count"]
 
     modules = [
         {
@@ -205,7 +220,7 @@ def dashboard(request):
             "title": "School accounts",
             "blurb": "School-level fee categories, ledgers, and finance overview.",
             "url_name": "billing:school_accounts",
-            "meta": f"{categories.count()} categories",
+            "meta": f"{category_count} categories",
         },
         {
             "title": "Reports",
@@ -233,7 +248,7 @@ def dashboard(request):
             "recent_charges": recent_charges,
             "categories": categories,
             "learner_count": learner_count,
-            "category_count": categories.count(),
+            "category_count": category_count,
             "modules": modules,
         },
     )
@@ -421,6 +436,9 @@ def _apply_fee_structure_to_students(structure: FeeStructure, user) -> dict:
     """
     Post one FeeCharge per structure line for every student on the structure's levels.
     Skips lines already posted to a student for this structure.
+
+    Caps students×lines and takes a short per-structure lock so concurrent
+    applies cannot pin/exhaust sync workers.
     """
     lines = list(structure.lines.select_related("vote"))
     students = list(_students_for_structure_levels(structure.academic_level_ids or []))
@@ -431,53 +449,78 @@ def _apply_fee_structure_to_students(structure: FeeStructure, user) -> dict:
             "skipped": 0,
         }
 
-    year_label = structure.financial_year.display_name
-    term_label = structure.financial_term.name
-    existing = set(
-        FeeCharge.objects.filter(
-            fee_structure=structure,
-            structure_line_id__isnull=False,
-            student_id__in=[s.id for s in students],
-        ).values_list("student_id", "structure_line_id")
-    )
+    cells = len(students) * len(lines)
+    if cells > _FEE_APPLY_MAX_CELLS:
+        raise ValueError(
+            f"Fee structure is too large to apply in one go "
+            f"({len(students)} learners × {len(lines)} lines = {cells}; "
+            f"limit {_FEE_APPLY_MAX_CELLS}). "
+            "Narrow the academic levels or split vote lines, then try again."
+        )
 
-    to_create = []
-    skipped = 0
-    category_cache = {}
-    for student in students:
-        for line in lines:
-            key = (student.id, line.id)
-            if key in existing:
-                skipped += 1
-                continue
-            vote = line.vote
-            if vote.id not in category_cache:
-                category_cache[vote.id] = _fee_category_for_vote(vote)
-            to_create.append(
-                FeeCharge(
-                    student_id=student.id,
-                    category=category_cache[vote.id],
-                    title=vote.name,
-                    academic_year=year_label,
-                    term=term_label,
-                    amount=line.amount,
-                    amount_paid=Decimal("0.00"),
-                    status=FeeCharge.Status.OPEN,
-                    notes=f"From fee structure {structure.reference_code}",
-                    fee_structure=structure,
-                    structure_line=line,
-                    created_by=user,
+    lock_key = f"{_FEE_APPLY_LOCK_PREFIX}{structure.pk}"
+    if not cache.add(lock_key, "1", _FEE_APPLY_LOCK_TTL):
+        raise ValueError(
+            "This fee structure is already being applied. "
+            "Wait a minute and try again."
+        )
+
+    try:
+        year_label = structure.financial_year.display_name
+        term_label = structure.financial_term.name
+        student_ids = [s.id for s in students]
+        existing = set(
+            FeeCharge.objects.filter(
+                fee_structure=structure,
+                structure_line_id__isnull=False,
+                student_id__in=student_ids,
+            ).values_list("student_id", "structure_line_id")
+        )
+
+        to_create = []
+        skipped = 0
+        category_cache = {}
+        for student in students:
+            for line in lines:
+                key = (student.id, line.id)
+                if key in existing:
+                    skipped += 1
+                    continue
+                vote = line.vote
+                if vote.id not in category_cache:
+                    category_cache[vote.id] = _fee_category_for_vote(vote)
+                to_create.append(
+                    FeeCharge(
+                        student_id=student.id,
+                        category=category_cache[vote.id],
+                        title=vote.name,
+                        academic_year=year_label,
+                        term=term_label,
+                        amount=line.amount,
+                        amount_paid=Decimal("0.00"),
+                        status=FeeCharge.Status.OPEN,
+                        notes=f"From fee structure {structure.reference_code}",
+                        fee_structure=structure,
+                        structure_line=line,
+                        created_by=user,
+                    )
                 )
-            )
 
-    if to_create:
-        FeeCharge.objects.bulk_create(to_create, batch_size=500)
+        if to_create:
+            FeeCharge.objects.bulk_create(to_create, batch_size=500)
 
-    return {
-        "students": len(students),
-        "created": len(to_create),
-        "skipped": skipped,
-    }
+        return {
+            "students": len(students),
+            "created": len(to_create),
+            "skipped": skipped,
+        }
+    except (DatabaseError, OperationalError) as exc:
+        raise ValueError(
+            "Could not apply fee structure right now (server busy). "
+            "Wait a few seconds and try again."
+        ) from exc
+    finally:
+        cache.delete(lock_key)
 
 
 def _parse_fee_structure_form(request, votes, linked_level_ids):
@@ -559,17 +602,17 @@ def _sync_fee_structure_lines(structure, lines, year, term):
         if line.amount != amount:
             line.amount = amount
             line.save(update_fields=["amount"])
-            unpaid = FeeCharge.objects.filter(
+            FeeCharge.objects.filter(
                 structure_line=line,
                 amount_paid=Decimal("0.00"),
             ).exclude(
                 status__in=[FeeCharge.Status.WAIVED, FeeCharge.Status.CANCELLED]
+            ).update(
+                amount=amount,
+                academic_year=year.display_name,
+                term=term.name,
+                status=FeeCharge.Status.OPEN,
             )
-            for charge in unpaid:
-                charge.amount = amount
-                charge.academic_year = year.display_name
-                charge.term = term.name
-                charge.refresh_status(save=True)
 
     for vote_id, line in existing_by_vote.items():
         if vote_id in keep_vote_ids:
@@ -826,20 +869,54 @@ def student_fees_level_students(request, account_id, level_id):
         "balance": Decimal("0.00"),
     }
     students_payload = {}
+    page_obj = None
+    learner_total = 0
 
     if student_key:
-        qs = Student.objects.filter(
+        base_qs = Student.objects.filter(
             academic_level=student_key,
             is_suspended=False,
         ).select_related("parent_guardian")
         if q:
-            qs = qs.filter(
+            base_qs = base_qs.filter(
                 Q(first_name__icontains=q)
                 | Q(last_name__icontains=q)
                 | Q(admission_number__icontains=q)
                 | Q(assessment_number__icontains=q)
             )
-        students = list(qs.order_by("last_name", "first_name"))
+        base_qs = base_qs.order_by("last_name", "first_name")
+        learner_total = base_qs.count()
+        page_obj = Paginator(base_qs, _FEE_LEVEL_PAGE_SIZE).get_page(
+            request.GET.get("page") or 1
+        )
+        students = list(page_obj.object_list)
+
+        level_finance = (
+            FeeCharge.objects.filter(student_id__in=base_qs.values("id"))
+            .exclude(
+                status__in=[FeeCharge.Status.CANCELLED, FeeCharge.Status.WAIVED]
+            )
+            .aggregate(
+                charged=Coalesce(
+                    Sum("amount"),
+                    Value(
+                        Decimal("0.00"),
+                        output_field=DecimalField(max_digits=12, decimal_places=2),
+                    ),
+                ),
+                paid=Coalesce(
+                    Sum("amount_paid"),
+                    Value(
+                        Decimal("0.00"),
+                        output_field=DecimalField(max_digits=12, decimal_places=2),
+                    ),
+                ),
+            )
+        )
+        totals["charged"] = level_finance["charged"] or Decimal("0.00")
+        totals["paid"] = level_finance["paid"] or Decimal("0.00")
+        totals["balance"] = totals["charged"] - totals["paid"]
+
         student_ids = [s.id for s in students]
         finance_by_student = {
             row["student_id"]: row
@@ -873,9 +950,6 @@ def student_fees_level_students(request, account_id, level_id):
             student.total_charged = charged
             student.total_paid = paid
             student.ledger_balance = balance
-            totals["charged"] += charged
-            totals["paid"] += paid
-            totals["balance"] += balance
             parent_phone = ""
             if student.parent_guardian_id and student.parent_guardian:
                 parent_phone = student.parent_guardian.phone_number or ""
@@ -896,6 +970,8 @@ def student_fees_level_students(request, account_id, level_id):
             "student_key": student_key,
             "students": students,
             "q": q,
+            "page_obj": page_obj,
+            "learner_total": learner_total,
             "totals": totals,
             "payment_options": payment_options,
             "payment_options_json": json.dumps(
@@ -1129,36 +1205,46 @@ def student_fees_fee_structure(request, account_id):
                 messages.error(request, error)
                 open_structure_modal = True
             elif action == "register_structure":
-                with transaction.atomic():
-                    structure = FeeStructure(
-                        account=account,
-                        financial_year=year,
-                        financial_term=term,
-                        name=f"{term.name} · {year.display_name}",
-                        notes=form["notes"],
-                        academic_level_ids=selected_levels,
-                        status=FeeStructure.Status.ACTIVE,
-                        created_by=request.user,
+                try:
+                    with transaction.atomic():
+                        structure = FeeStructure(
+                            account=account,
+                            financial_year=year,
+                            financial_term=term,
+                            name=f"{term.name} · {year.display_name}",
+                            notes=form["notes"],
+                            academic_level_ids=selected_levels,
+                            status=FeeStructure.Status.ACTIVE,
+                            created_by=request.user,
+                        )
+                        structure.save()
+                        FeeStructureLine.objects.bulk_create(
+                            [
+                                FeeStructureLine(
+                                    structure=structure, vote=vote, amount=amount
+                                )
+                                for vote, amount in lines
+                            ]
+                        )
+                        applied = _apply_fee_structure_to_students(
+                            structure, request.user
+                        )
+                except ValueError as exc:
+                    messages.error(request, str(exc))
+                    open_structure_modal = True
+                else:
+                    level_count = len(selected_levels)
+                    messages.success(
+                        request,
+                        f"Fee structure “{structure.display_name}” registered for "
+                        f"{level_count} level{'s' if level_count != 1 else ''} "
+                        f"({structure.reference_code}). "
+                        f"Posted {applied['created']} charge(s) to "
+                        f"{applied['students']} learner(s).",
                     )
-                    structure.save()
-                    FeeStructureLine.objects.bulk_create(
-                        [
-                            FeeStructureLine(
-                                structure=structure, vote=vote, amount=amount
-                            )
-                            for vote, amount in lines
-                        ]
+                    return redirect(
+                        "billing:student_fees_fee_structure", account_id=account.id
                     )
-                    applied = _apply_fee_structure_to_students(structure, request.user)
-                level_count = len(selected_levels)
-                messages.success(
-                    request,
-                    f"Fee structure “{structure.display_name}” registered for "
-                    f"{level_count} level{'s' if level_count != 1 else ''} "
-                    f"({structure.reference_code}). "
-                    f"Posted {applied['created']} charge(s) to {applied['students']} learner(s).",
-                )
-                return redirect("billing:student_fees_fee_structure", account_id=account.id)
             else:
                 try:
                     with transaction.atomic():
@@ -1194,14 +1280,18 @@ def student_fees_fee_structure(request, account_id):
             if structure.status != FeeStructure.Status.ACTIVE:
                 messages.error(request, "Only active fee structures can be applied to learners.")
             else:
-                applied = _apply_fee_structure_to_students(structure, request.user)
-                messages.success(
-                    request,
-                    f"Applied “{structure.display_name}” to learners: "
-                    f"{applied['created']} new charge(s), "
-                    f"{applied['skipped']} already posted, "
-                    f"{applied['students']} learner(s) in scope.",
-                )
+                try:
+                    applied = _apply_fee_structure_to_students(structure, request.user)
+                except ValueError as exc:
+                    messages.error(request, str(exc))
+                else:
+                    messages.success(
+                        request,
+                        f"Applied “{structure.display_name}” to learners: "
+                        f"{applied['created']} new charge(s), "
+                        f"{applied['skipped']} already posted, "
+                        f"{applied['students']} learner(s) in scope.",
+                    )
             return redirect("billing:student_fees_fee_structure", account_id=account.id)
 
         elif action == "archive_structure":
@@ -1256,6 +1346,7 @@ def student_fees_fee_structure(request, account_id):
         FeeStructure.objects.filter(account=account)
         .select_related("financial_year", "financial_term")
         .prefetch_related("lines__vote")
+        .annotate(line_count=Count("lines"))
         .order_by("-created_at")
     )
     level_map = {level.id: level for level in levels}
@@ -1293,7 +1384,7 @@ def student_fees_fee_structure(request, account_id):
                     if level_id in level_map
                 ],
                 "total": structure.total_amount,
-                "line_count": structure.lines.count(),
+                "line_count": structure.line_count,
                 "student_count": charged_students,
                 "has_payments": has_payments,
             }
@@ -2258,10 +2349,43 @@ def reports(request):
             category_key = selected_report["category_key"]
             error = resolve_period()
             if error is None:
-                try:
-                    report_result = build_report(report_type, date_from, date_to)
-                except ValueError:
-                    error = "Choose a valid report type."
+                period_error = validate_report_period(date_from, date_to)
+                if period_error:
+                    error = period_error
+            if error is None:
+                report_lock_key = f"{_REPORT_LOCK_PREFIX}{request.user.pk}"
+                if not cache.add(report_lock_key, "1", _REPORT_LOCK_TTL):
+                    error = (
+                        "You already have a report generating. "
+                        "Wait for it to finish, then try again."
+                    )
+                else:
+                    try:
+                        report_result = build_report(
+                            report_type,
+                            date_from,
+                            date_to,
+                            max_rows=REPORT_MAX_ROWS,
+                        )
+                    except ValueError as exc:
+                        error = str(exc) or "Choose a valid report type."
+                    except MemoryError:
+                        error = (
+                            "Report ran out of memory. "
+                            "Narrow the date range and try again."
+                        )
+                    except (DatabaseError, OperationalError):
+                        error = (
+                            "Could not generate the report right now (server busy). "
+                            "Wait a few seconds and try again."
+                        )
+                    except Exception:
+                        error = (
+                            "Report failed. Try a narrower period, or refresh and "
+                            "generate again."
+                        )
+                    finally:
+                        cache.delete(report_lock_key)
     else:
         # Defaults for the filter form before generate.
         if period_mode == "custom":
@@ -2420,6 +2544,7 @@ def invoices(request):
 
     totals = Payment.objects.aggregate(total=Sum("amount"))
     supplier_count = StoreSupplier.objects.filter(is_active=True).count()
+    portal_counts = get_portal_counts()
     return render(
         request,
         "billing/invoices.html",
@@ -2427,8 +2552,8 @@ def invoices(request):
             "charges": charges,
             "payments": payments,
             "payments_total": totals["total"] or Decimal("0.00"),
-            "invoice_count": FeeCharge.objects.count(),
-            "payment_count": Payment.objects.count(),
+            "invoice_count": portal_counts["invoice_charge_count"],
+            "payment_count": portal_counts["invoice_payment_count"],
             "supplier_count": supplier_count,
         },
     )

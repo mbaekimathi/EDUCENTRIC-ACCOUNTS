@@ -59,17 +59,28 @@ def sync_accounts_user_from_employee(employee: Employee) -> AccountsUser:
             "employee_id": employee.id,
         },
     )
-    user.email = employee.email or user.email
-    user.first_name = employee.first_name
-    user.last_name = employee.last_name
-    user.phone_number = employee.phone_number or ""
-    user.role = role
-    user.is_active = True
-    user.is_staff = True
-    user.employee_id = employee.id
-    # Keep password hash in sync so session user matches employee credentials.
-    user.password = employee.password
-    user.save()
+    update_fields = []
+    field_pairs = (
+        ("email", employee.email or user.email),
+        ("first_name", employee.first_name),
+        ("last_name", employee.last_name),
+        ("phone_number", employee.phone_number or ""),
+        ("role", role),
+        ("employee_id", employee.id),
+        ("password", employee.password),
+    )
+    for field, value in field_pairs:
+        if getattr(user, field) != value:
+            setattr(user, field, value)
+            update_fields.append(field)
+    if user.is_active is not True:
+        user.is_active = True
+        update_fields.append("is_active")
+    if user.is_staff is not True:
+        user.is_staff = True
+        update_fields.append("is_staff")
+    if update_fields:
+        user.save(update_fields=update_fields)
     return user
 
 

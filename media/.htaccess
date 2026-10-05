@@ -1,0 +1,15 @@
+# Bypass Passenger for uploaded files so logos/PDFs are served by Apache.
+# After deploying, confirm /media/... returns without hitting Django, then set:
+#   SERVE_MEDIA=False
+PassengerEnabled Off
+
+<IfModule mod_headers.c>
+  Header set X-Content-Type-Options "nosniff"
+  # Branding logos get long cache (filenames change on replace).
+  <FilesMatch "\.(?i:jpe?g|png|gif|webp|svg|ico)$">
+    Header set Cache-Control "public, max-age=2592000"
+  </FilesMatch>
+  <FilesMatch "\.(?i:pdf|mp4|webm|zip)$">
+    Header set Cache-Control "public, max-age=86400"
+  </FilesMatch>
+</IfModule>

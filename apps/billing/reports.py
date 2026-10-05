@@ -1,9 +1,15 @@
 """Accounts report catalogue and builders."""
 
+from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
 
 from django.db.models import Q, Sum
+
+REPORT_MAX_ROWS = 5000
+REPORT_MAX_PERIOD_DAYS = 366
+# Cap each cash-book source before merge so one stream cannot OOM a worker.
+CASH_BOOK_SOURCE_FETCH_CAP = 2500
 
 from apps.directory.models import Student
 
@@ -19,7 +25,6 @@ from .models import (
     StoreItem,
     StoreStockMovement,
     StoreSupplierPayment,
-    school_account_available_balance,
 )
 
 SUPPLIER_OPEN_PAYMENT_STATUSES = (
@@ -186,8 +191,33 @@ def parse_report_date(value):
         return None
 
 
+def validate_report_period(date_from, date_to):
+    days = (date_to - date_from).days + 1
+    if days > REPORT_MAX_PERIOD_DAYS:
+        return (
+            f"Date range is too long ({days} days; limit {REPORT_MAX_PERIOD_DAYS}). "
+            "Choose a shorter academic term or custom range."
+        )
+    return None
+
+
 def money(value):
     return f"KES {(value or Decimal('0.00')):,.2f}"
+
+
+def _sum_by_account(queryset, *, account_field="account_id", amount_field="amount"):
+    return {
+        row[account_field]: row["total"] or Decimal("0.00")
+        for row in queryset.values(account_field).annotate(total=Sum(amount_field))
+        if row[account_field] is not None
+    }
+
+
+def _limited_list(queryset, limit):
+    items = list(queryset[: limit + 1])
+    if len(items) > limit:
+        return items[:limit], True
+    return items, False
 
 
 def _student_label_map(student_ids):
@@ -197,20 +227,36 @@ def _student_label_map(student_ids):
     }
 
 
-def build_report(report_type, date_from, date_to):
+def build_report(report_type, date_from, date_to, *, max_rows=REPORT_MAX_ROWS):
     """Return columns, rows, summary, and optional support note for a report."""
+    period_error = validate_report_period(date_from, date_to)
+    if period_error:
+        raise ValueError(period_error)
+
     zero = Decimal("0.00")
     meta = REPORT_TYPE_MAP.get(report_type)
     if meta is None:
         raise ValueError("Unknown report type.")
 
     def finish(columns, rows, summary, support_note=None):
+        row_total = len(rows)
+        if row_total > max_rows:
+            rows = rows[:max_rows]
+        notes = [support_note or meta.get("support_note", "")]
+        if row_total > max_rows:
+            notes.append(
+                f"Showing the first {max_rows:,} of {row_total:,} rows. "
+                "Narrow the date range for full detail."
+            )
+        combined_note = " ".join(part for part in notes if part).strip()
         return {
             "columns": columns,
             "rows": rows,
             "summary": summary,
             "support": meta.get("support", "full"),
-            "support_note": support_note or meta.get("support_note", ""),
+            "support_note": combined_note,
+            "truncated": row_total > max_rows,
+            "row_total": row_total,
         }
 
     if report_type == "financial_performance":
@@ -268,11 +314,19 @@ def build_report(report_type, date_from, date_to):
         )
 
     if report_type == "financial_position":
-        accounts = SchoolAccount.objects.order_by("category", "name")
+        accounts = list(SchoolAccount.objects.order_by("category", "name"))
+        topup_map = _sum_by_account(
+            AccountTopUp.objects.filter(status=AccountTopUp.Status.APPROVED)
+        )
+        withdraw_map = _sum_by_account(
+            AccountWithdraw.objects.filter(status=AccountWithdraw.Status.APPROVED)
+        )
         rows = []
         total = zero
         for account in accounts:
-            balance = school_account_available_balance(account)
+            balance = topup_map.get(account.id, zero) - withdraw_map.get(
+                account.id, zero
+            )
             total += balance
             rows.append(
                 [
@@ -345,29 +399,27 @@ def build_report(report_type, date_from, date_to):
         )
 
     if report_type == "trial_balance":
-        accounts = SchoolAccount.objects.order_by("name")
+        accounts = list(SchoolAccount.objects.order_by("name"))
+        debit_map = _sum_by_account(
+            AccountWithdraw.objects.filter(
+                status=AccountWithdraw.Status.APPROVED,
+                created_at__date__gte=date_from,
+                created_at__date__lte=date_to,
+            )
+        )
+        credit_map = _sum_by_account(
+            AccountTopUp.objects.filter(
+                status=AccountTopUp.Status.APPROVED,
+                created_at__date__gte=date_from,
+                created_at__date__lte=date_to,
+            )
+        )
         rows = []
         debit_total = zero
         credit_total = zero
         for account in accounts:
-            debits = (
-                AccountWithdraw.objects.filter(
-                    account=account,
-                    status=AccountWithdraw.Status.APPROVED,
-                    created_at__date__gte=date_from,
-                    created_at__date__lte=date_to,
-                ).aggregate(total=Sum("amount"))["total"]
-                or zero
-            )
-            credits = (
-                AccountTopUp.objects.filter(
-                    account=account,
-                    status=AccountTopUp.Status.APPROVED,
-                    created_at__date__gte=date_from,
-                    created_at__date__lte=date_to,
-                ).aggregate(total=Sum("amount"))["total"]
-                or zero
-            )
+            debits = debit_map.get(account.id, zero)
+            credits = credit_map.get(account.id, zero)
             if debits == zero and credits == zero:
                 continue
             debit_total += debits
@@ -396,31 +448,36 @@ def build_report(report_type, date_from, date_to):
         )
 
     if report_type == "cash_book":
-        payments = list(
+        source_cap = min(CASH_BOOK_SOURCE_FETCH_CAP, max_rows + 500)
+        payments, _ = _limited_list(
             Payment.objects.filter(
                 received_at__date__gte=date_from,
                 received_at__date__lte=date_to,
-            ).select_related("charge", "charge__category")
+            ).select_related("charge", "charge__category"),
+            source_cap,
         )
-        topups = list(
+        topups, _ = _limited_list(
             AccountTopUp.objects.filter(
                 created_at__date__gte=date_from,
                 created_at__date__lte=date_to,
                 status=AccountTopUp.Status.APPROVED,
-            ).select_related("account")
+            ).select_related("account"),
+            source_cap,
         )
-        withdrawals = list(
+        withdrawals, _ = _limited_list(
             AccountWithdraw.objects.filter(
                 created_at__date__gte=date_from,
                 created_at__date__lte=date_to,
                 status=AccountWithdraw.Status.APPROVED,
-            ).select_related("account")
+            ).select_related("account"),
+            source_cap,
         )
-        supplier_pays = list(
+        supplier_pays, _ = _limited_list(
             StoreSupplierPayment.objects.filter(
                 created_at__date__gte=date_from,
                 created_at__date__lte=date_to,
-            ).select_related("movement__supplier", "account")
+            ).select_related("movement__supplier", "account"),
+            source_cap,
         )
         student_map = _student_label_map({p.student_id for p in payments})
         entries = []
@@ -528,53 +585,60 @@ def build_report(report_type, date_from, date_to):
 
     if report_type == "general_ledger":
         accounts = list(SchoolAccount.objects.order_by("category", "name"))
+        opening_topups = _sum_by_account(
+            AccountTopUp.objects.filter(
+                status=AccountTopUp.Status.APPROVED,
+                created_at__date__lt=date_from,
+            )
+        )
+        opening_withdrawals = _sum_by_account(
+            AccountWithdraw.objects.filter(
+                status=AccountWithdraw.Status.APPROVED,
+                created_at__date__lt=date_from,
+            )
+        )
+        period_topups = list(
+            AccountTopUp.objects.filter(
+                status=AccountTopUp.Status.APPROVED,
+                created_at__date__gte=date_from,
+                created_at__date__lte=date_to,
+            ).order_by("created_at", "id")
+        )
+        period_withdrawals = list(
+            AccountWithdraw.objects.filter(
+                status=AccountWithdraw.Status.APPROVED,
+                created_at__date__gte=date_from,
+                created_at__date__lte=date_to,
+            ).order_by("created_at", "id")
+        )
+        period_supplier_pays = list(
+            StoreSupplierPayment.objects.filter(
+                created_at__date__gte=date_from,
+                created_at__date__lte=date_to,
+            )
+            .select_related("movement__supplier", "account")
+            .order_by("created_at", "id")
+        )
+        topups_by_account = defaultdict(list)
+        for topup in period_topups:
+            topups_by_account[topup.account_id].append(topup)
+        withdrawals_by_account = defaultdict(list)
+        for withdrawal in period_withdrawals:
+            withdrawals_by_account[withdrawal.account_id].append(withdrawal)
+        pays_by_account = defaultdict(list)
+        for pay in period_supplier_pays:
+            pays_by_account[pay.account_id].append(pay)
+
         rows = []
         posted_accounts = 0
         movement_count = 0
         for account in accounts:
-            opening = (
-                (
-                    AccountTopUp.objects.filter(
-                        account=account,
-                        status=AccountTopUp.Status.APPROVED,
-                        created_at__date__lt=date_from,
-                    ).aggregate(total=Sum("amount"))["total"]
-                    or zero
-                )
-                - (
-                    AccountWithdraw.objects.filter(
-                        account=account,
-                        status=AccountWithdraw.Status.APPROVED,
-                        created_at__date__lt=date_from,
-                    ).aggregate(total=Sum("amount"))["total"]
-                    or zero
-                )
+            opening = opening_topups.get(account.id, zero) - opening_withdrawals.get(
+                account.id, zero
             )
-            topups = list(
-                AccountTopUp.objects.filter(
-                    account=account,
-                    status=AccountTopUp.Status.APPROVED,
-                    created_at__date__gte=date_from,
-                    created_at__date__lte=date_to,
-                ).order_by("created_at", "id")
-            )
-            withdrawals = list(
-                AccountWithdraw.objects.filter(
-                    account=account,
-                    status=AccountWithdraw.Status.APPROVED,
-                    created_at__date__gte=date_from,
-                    created_at__date__lte=date_to,
-                ).order_by("created_at", "id")
-            )
-            supplier_pays = list(
-                StoreSupplierPayment.objects.filter(
-                    account=account,
-                    created_at__date__gte=date_from,
-                    created_at__date__lte=date_to,
-                )
-                .select_related("movement__supplier")
-                .order_by("created_at", "id")
-            )
+            topups = topups_by_account.get(account.id, [])
+            withdrawals = withdrawals_by_account.get(account.id, [])
+            supplier_pays = pays_by_account.get(account.id, [])
             if not topups and not withdrawals and not supplier_pays and opening == zero:
                 continue
 
@@ -676,13 +740,14 @@ def build_report(report_type, date_from, date_to):
         )
 
     if report_type == "fee_collection_register":
-        payments = list(
+        payments, _ = _limited_list(
             Payment.objects.filter(
                 received_at__date__gte=date_from,
                 received_at__date__lte=date_to,
             )
             .select_related("charge", "charge__category", "received_by")
-            .order_by("-received_at")
+            .order_by("-received_at"),
+            max_rows,
         )
         student_map = _student_label_map({p.student_id for p in payments})
         total = zero
@@ -710,7 +775,7 @@ def build_report(report_type, date_from, date_to):
         )
 
     if report_type == "overdue_payments":
-        charges = list(
+        charges, _ = _limited_list(
             FeeCharge.objects.exclude(
                 status__in=[
                     FeeCharge.Status.CANCELLED,
@@ -720,7 +785,8 @@ def build_report(report_type, date_from, date_to):
             )
             .filter(due_date__isnull=False, due_date__lt=date_to)
             .select_related("category")
-            .order_by("due_date", "created_at")
+            .order_by("due_date", "created_at"),
+            max_rows + 500,
         )
         student_map = _student_label_map({c.student_id for c in charges})
         outstanding = zero
@@ -942,7 +1008,7 @@ def build_report(report_type, date_from, date_to):
         )
         if account_ids:
             withdraw_q |= Q(account_id__in=account_ids)
-        entries = list(
+        entries, _ = _limited_list(
             AccountWithdraw.objects.filter(
                 withdraw_q,
                 status=AccountWithdraw.Status.APPROVED,
@@ -950,7 +1016,8 @@ def build_report(report_type, date_from, date_to):
                 created_at__date__lte=date_to,
             )
             .select_related("account")
-            .order_by("-created_at")
+            .order_by("-created_at"),
+            max_rows,
         )
         rows = []
         total = zero
@@ -985,7 +1052,7 @@ def build_report(report_type, date_from, date_to):
         )
 
     if report_type == "store_supplies_register":
-        movements = list(
+        movements, _ = _limited_list(
             StoreStockMovement.objects.filter(
                 created_at__date__gte=date_from,
                 created_at__date__lte=date_to,
@@ -997,7 +1064,8 @@ def build_report(report_type, date_from, date_to):
                 "supplier",
                 "destination_station",
             )
-            .order_by("-created_at")
+            .order_by("-created_at"),
+            max_rows,
         )
         rows = []
         qty_in = zero

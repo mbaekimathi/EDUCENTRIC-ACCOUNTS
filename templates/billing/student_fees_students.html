@@ -22,7 +22,7 @@
 <section class="sa-stats" id="level-fee-stats">
   <article class="sa-stat">
     <p class="sa-stat-label">Learners</p>
-    <p class="sa-stat-value">{{ students|length }}</p>
+    <p class="sa-stat-value">{% if learner_total %}{{ learner_total }}{% else %}{{ students|length }}{% endif %}</p>
   </article>
   <article class="sa-stat">
     <p class="sa-stat-label">Total charged</p>
@@ -102,6 +102,17 @@
       </tbody>
     </table>
   </div>
+  {% if page_obj and page_obj.paginator.num_pages > 1 %}
+  <nav class="mt-4 flex flex-wrap items-center gap-3 text-sm text-ink-600" aria-label="Learner pages">
+    {% if page_obj.has_previous %}
+    <a class="btn-ghost btn-compact" href="?{% if q %}q={{ q|urlencode }}&amp;{% endif %}page={{ page_obj.previous_page_number }}">← Previous</a>
+    {% endif %}
+    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}
+    <a class="btn-ghost btn-compact" href="?{% if q %}q={{ q|urlencode }}&amp;{% endif %}page={{ page_obj.next_page_number }}">Next →</a>
+    {% endif %}
+  </nav>
+  {% endif %}
   {% else %}
   <div class="sa-empty">
     <div class="sa-empty-mark" aria-hidden="true">S</div>
