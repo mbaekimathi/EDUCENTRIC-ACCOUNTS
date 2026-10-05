@@ -18,7 +18,7 @@ Sessions use cookie `edu_accounts_sessionid` so they never clash with the other 
 cd ACCOUNTS
 pip install -r requirements.txt
 copy .env.example .env
-python manage.py migrate
+python manage.py ensure_db            # creates ACCOUNTS tables if missing (idempotent migrate)
 python manage.py bootstrap_accounts
 python manage.py runserver 8002
 ```
