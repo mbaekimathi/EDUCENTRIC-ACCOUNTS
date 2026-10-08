@@ -1,0 +1,340 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}{{ level.name }} · {{ account.name }}{% endblock %}
+{% block header_kicker %}{{ account.name }}{% endblock %}
+{% block header_title %}{{ level.name }}{% endblock %}
+
+{% block sidebar_page_nav %}
+<p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Pocket money</p>
+{% url 'billing:school_account_detail' account.id as pocket_account_href %}
+{% include "components/sidebar_page_link.html" with href=pocket_account_href label="Back to classes" %}
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">{{ level.code }}{% if level.category %} · {{ level.category }}{% endif %}</p>
+    <h2 class="sa-hero-title">{{ level.name }}</h2>
+    <p class="sa-hero-copy">
+      Learners in this class for {{ account.name }}. Top up or withdraw pocket money per learner.
+    </p>
+  </div>
+</section>
+
+<section class="sa-stats">
+  <article class="sa-stat">
+    <p class="sa-stat-label">Learners</p>
+    <p class="sa-stat-value">{{ students|length }}</p>
+  </article>
+  <article class="sa-stat">
+    <p class="sa-stat-label">Total held</p>
+    <p class="sa-stat-value is-brand">KES {{ total_held|floatformat:2 }}</p>
+    <p class="sa-stat-meta">On listed learners</p>
+  </article>
+</section>
+
+<section class="sa-section">
+  <div class="sa-section-head">
+    <div>
+      <h3 class="sa-section-title">Learners</h3>
+      <p class="sa-section-copy">Top up or withdraw pocket money for each learner</p>
+    </div>
+  </div>
+
+  <form method="get" class="mb-4 max-w-xl">
+    <label class="block">
+      <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Search learners</span>
+      <input type="search" name="q" value="{{ q }}" placeholder="Name, admission, or assessment…" class="field-input">
+    </label>
+  </form>
+
+  {% if not student_key %}
+  <div class="sa-empty">
+    <div class="sa-empty-mark" aria-hidden="true">?</div>
+    <h4 class="sa-empty-title">Level mapping missing</h4>
+    <p class="sa-empty-copy">
+      Could not match curriculum level “{{ level.name }}” ({{ level.code }}) to learner academic levels.
+    </p>
+  </div>
+  {% elif students %}
+  <div class="sa-table-wrap">
+    <table class="sa-table">
+      <thead>
+        <tr>
+          <th>Learner</th>
+          <th>Admission</th>
+          <th>Balance</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for student in students %}
+        <tr>
+          <td>
+            <p class="sa-table-primary">{{ student.display_name }}</p>
+            <p class="sa-table-secondary">{{ student.get_academic_level_display }}{% if student.class_group %} · {{ student.class_group }}{% endif %}</p>
+          </td>
+          <td>{{ student.admission_number|default:student.assessment_number }}</td>
+          <td class="is-brand">KES {{ student.pocket_balance|floatformat:2 }}</td>
+          <td>
+            <div class="sa-account-actions-inline">
+              {% if account.is_active %}
+              <button
+                type="button"
+                class="btn-primary btn-compact"
+                data-open-pocket-topup
+                data-student-id="{{ student.id }}"
+                data-student-name="{{ student.display_name }}"
+                data-student-balance="{{ student.pocket_balance }}"
+              >Top up</button>
+              <button
+                type="button"
+                class="btn-ghost btn-compact"
+                data-open-pocket-withdraw
+                data-student-id="{{ student.id }}"
+                data-student-name="{{ student.display_name }}"
+                data-student-balance="{{ student.pocket_balance }}"
+                {% if student.pocket_balance <= 0 %}disabled title="No balance to withdraw"{% endif %}
+              >Withdraw</button>
+              {% endif %}
+              <a
+                href="{% url 'billing:pocket_money_student_transactions' account.id level.id student.id %}"
+                class="btn-ghost btn-compact"
+              >Transactions</a>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="sa-empty">
+    <div class="sa-empty-mark" aria-hidden="true">L</div>
+    <h4 class="sa-empty-title">No learners found</h4>
+    <p class="sa-empty-copy">
+      {% if q %}No learners match “{{ q }}”.{% else %}No active learners in this class yet.{% endif %}
+    </p>
+  </div>
+  {% endif %}
+</section>
+
+<dialog id="pocket-topup-modal" class="account-modal">
+  <form method="post" action="{% url 'billing:pocket_money_level_students' account.id level.id %}" class="account-modal-card" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="action" value="student_topup">
+    <input type="hidden" name="student_id" id="pocket-topup-student-id" value="{{ topup_form.student_id }}">
+
+    <div class="account-modal-head">
+      <div>
+        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-400">{{ account.name }}</p>
+        <h3 class="font-display text-2xl font-semibold text-ink-950">Top up pocket money</h3>
+      </div>
+      <button type="button" class="account-modal-close" data-close-pocket-topup aria-label="Close">×</button>
+    </div>
+
+    <div class="account-modal-body space-y-4">
+      <p class="rounded-lg border border-dashed border-ink-200 bg-ink-50/60 px-3 py-2 text-sm text-ink-600">
+        Learner: <span class="font-semibold text-ink-950" id="pocket-topup-student-name">—</span>
+        · Balance: <span class="font-semibold text-ink-950" id="pocket-topup-student-balance">KES 0.00</span>
+      </p>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Amount (KES) *</span>
+        <input type="number" name="amount" required min="0.01" step="0.01" value="{{ topup_form.amount }}" class="field-input" placeholder="0.00">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Method *</span>
+        <select name="method" required class="field-input">
+          <option value="">Select method</option>
+          {% for value, label in topup_methods %}
+          <option value="{{ value }}" {% if topup_form.method == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Short description</span>
+        <input type="text" name="description" maxlength="255" value="{{ topup_form.description }}" class="field-input" placeholder="e.g. Parent deposit">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Reference number *</span>
+        <input type="text" name="reference_number" required maxlength="120" value="{{ topup_form.reference_number }}" class="field-input" data-uppercase placeholder="Receipt / M-Pesa code" autocomplete="off">
+      </label>
+    </div>
+
+    <div class="account-modal-actions">
+      <button type="button" class="btn-ghost" data-close-pocket-topup>Cancel</button>
+      <button type="submit" class="btn-primary">Record top up</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="pocket-withdraw-modal" class="account-modal">
+  <form method="post" action="{% url 'billing:pocket_money_level_students' account.id level.id %}" class="account-modal-card" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="action" value="student_withdraw">
+    <input type="hidden" name="student_id" id="pocket-withdraw-student-id" value="{{ withdraw_form.student_id }}">
+
+    <div class="account-modal-head">
+      <div>
+        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-400">{{ account.name }}</p>
+        <h3 class="font-display text-2xl font-semibold text-ink-950">Withdraw pocket money</h3>
+      </div>
+      <button type="button" class="account-modal-close" data-close-pocket-withdraw aria-label="Close">×</button>
+    </div>
+
+    <div class="account-modal-body space-y-4">
+      <p class="rounded-lg border border-dashed border-ink-200 bg-ink-50/60 px-3 py-2 text-sm text-ink-600">
+        Learner: <span class="font-semibold text-ink-950" id="pocket-withdraw-student-name">—</span>
+        · Available: <span class="font-semibold text-ink-950" id="pocket-withdraw-student-balance">KES 0.00</span>
+      </p>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Amount (KES) *</span>
+        <input type="number" name="amount" id="pocket-withdraw-amount" required min="0.01" step="0.01" value="{{ withdraw_form.amount }}" class="field-input" placeholder="0.00">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Method *</span>
+        <select name="method" required class="field-input">
+          <option value="">Select method</option>
+          {% for value, label in withdraw_methods %}
+          <option value="{{ value }}" {% if withdraw_form.method == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Purpose / description</span>
+        <input type="text" name="description" maxlength="255" value="{{ withdraw_form.description }}" class="field-input" placeholder="e.g. Weekend outing">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Voucher / reference number *</span>
+        <input type="text" name="reference_number" required maxlength="120" value="{{ withdraw_form.reference_number }}" class="field-input" data-uppercase placeholder="Voucher no." autocomplete="off">
+      </label>
+    </div>
+
+    <div class="account-modal-actions">
+      <button type="button" class="btn-ghost" data-close-pocket-withdraw>Cancel</button>
+      <button type="submit" class="btn-primary">Record withdrawal</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(function () {
+  var shouldOpenTopup = {{ open_topup_modal|yesno:"true,false" }};
+  var shouldOpenWithdraw = {{ open_withdraw_modal|yesno:"true,false" }};
+
+  function closeSidebar() {
+    var shell = document.querySelector("[data-app-shell]");
+    var overlay = document.querySelector("[data-sidebar-overlay]");
+    if (shell) shell.classList.remove("is-sidebar-open");
+    if (overlay) overlay.hidden = true;
+  }
+
+  function formatKes(value) {
+    var n = Number(value);
+    if (!isFinite(n)) n = 0;
+    return "KES " + n.toFixed(2);
+  }
+
+  function bindModal(modal, openSelector, closeSelector, beforeOpen, openOnLoad) {
+    if (!modal) return;
+    var readyAt = 0;
+
+    function open() {
+      closeSidebar();
+      readyAt = Date.now() + 400;
+      window.setTimeout(function () {
+        try {
+          if (typeof modal.showModal === "function") {
+            if (!modal.open) modal.showModal();
+          } else {
+            modal.setAttribute("open", "open");
+          }
+        } catch (err) {
+          modal.setAttribute("open", "open");
+        }
+      }, 0);
+    }
+
+    function close() {
+      if (Date.now() < readyAt) return;
+      try {
+        if (typeof modal.close === "function") {
+          if (modal.open) modal.close();
+        } else {
+          modal.removeAttribute("open");
+        }
+      } catch (err) {
+        modal.removeAttribute("open");
+      }
+    }
+
+    document.querySelectorAll(openSelector).forEach(function (btn) {
+      btn.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof beforeOpen === "function") beforeOpen(btn);
+        open();
+      });
+    });
+
+    document.querySelectorAll(closeSelector).forEach(function (btn) {
+      btn.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        readyAt = 0;
+        close();
+      });
+    });
+
+    modal.addEventListener("click", function (event) {
+      if (event.target === modal) close();
+    });
+
+    if (openOnLoad) {
+      readyAt = Date.now() + 400;
+      try {
+        if (typeof modal.showModal === "function") modal.showModal();
+        else modal.setAttribute("open", "open");
+      } catch (err) {
+        modal.setAttribute("open", "open");
+      }
+    }
+  }
+
+  bindModal(
+    document.getElementById("pocket-topup-modal"),
+    "[data-open-pocket-topup]",
+    "[data-close-pocket-topup]",
+    function (btn) {
+      document.getElementById("pocket-topup-student-id").value = btn.getAttribute("data-student-id") || "";
+      document.getElementById("pocket-topup-student-name").textContent = btn.getAttribute("data-student-name") || "—";
+      document.getElementById("pocket-topup-student-balance").textContent = formatKes(btn.getAttribute("data-student-balance"));
+    },
+    shouldOpenTopup
+  );
+
+  bindModal(
+    document.getElementById("pocket-withdraw-modal"),
+    "[data-open-pocket-withdraw]",
+    "[data-close-pocket-withdraw]",
+    function (btn) {
+      var balance = btn.getAttribute("data-student-balance") || "0";
+      document.getElementById("pocket-withdraw-student-id").value = btn.getAttribute("data-student-id") || "";
+      document.getElementById("pocket-withdraw-student-name").textContent = btn.getAttribute("data-student-name") || "—";
+      document.getElementById("pocket-withdraw-student-balance").textContent = formatKes(balance);
+      var amountInput = document.getElementById("pocket-withdraw-amount");
+      if (amountInput) amountInput.max = balance;
+    },
+    shouldOpenWithdraw
+  );
+})();
+</script>
+{% endblock %}

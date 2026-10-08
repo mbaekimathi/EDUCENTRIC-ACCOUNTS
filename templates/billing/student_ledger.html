@@ -1,69 +1,257 @@
 {% extends "layouts/app.html" %}
 
-{% block title %}{{ student.display_name }} · Ledger{% endblock %}
+{% block title %}{{ student.display_name }} · Fees ledger{% endblock %}
+{% block header_kicker %}Student fees{% endblock %}
 {% block header_title %}{{ student.display_name }}{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:student_search' %}" class="btn-ghost">All learners</a>
+{% block sidebar_page_nav %}
 {% endblock %}
 
 {% block content %}
 <section class="sa-hero has-banner">
-    <div class="sa-hero__banner">
-      <p class="sa-hero-kicker">Learner account</p>
-      <h2 class="sa-hero-title">{{ student.display_name }}</h2>
-      <p class="sa-hero-copy">
-        {{ student.admission_number|default:student.assessment_number }}
-        · {{ student.get_academic_level_display }}
-        {% if student.class_group %}· {{ student.class_group }}{% endif %}
-      </p>
-    </div>
-    <div class="sa-hero__body flex flex-wrap items-end justify-between gap-4">
-      <p class="text-sm text-ink-600">Current balance from Accounts tables</p>
-      <div class="sa-hero-balance">
-        <p class="sa-hero-balance-label">Balance</p>
-        <p class="sa-hero-balance-value">KES {{ balance|floatformat:2 }}</p>
-      </div>
-    </div>
-  </section>
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">
+      {% if ledger_account %}{{ ledger_account.name }}{% else %}Learner fees account{% endif %}
+    </p>
+    <h2 class="sa-hero-title">{{ student.display_name }}</h2>
+    <p class="sa-hero-copy">
+      {{ student.admission_number|default:student.assessment_number }}
+      · {{ student.get_academic_level_display }}
+      {% if student.class_group %}· {{ student.class_group }}{% endif %}
+      {% if ledger_account %}· {{ ledger_account.get_category_display }}{% endif %}
+    </p>
+  </div>
+</section>
 
-  <section class="grid gap-5 lg:grid-cols-2">
-    <article class="sa-list-panel">
-      <div class="sa-list-panel-head">
-        <h3 class="sa-list-panel-title">Charges</h3>
-      </div>
-      <ul>
-        {% for c in charges %}
-        <li class="text-sm">
-          <div class="flex justify-between gap-3">
-            <span class="font-semibold">{{ c.title }}</span>
-            <span>{{ c.amount }}</span>
+<section class="sa-section">
+  <div class="sa-tabs" role="tablist" aria-label="Fees ledger views">
+    <button
+      type="button"
+      class="sa-tab {% if active_tab == 'transactions' %}is-active{% endif %}"
+      role="tab"
+      aria-selected="{% if active_tab == 'transactions' %}true{% else %}false{% endif %}"
+      aria-controls="fees-tab-transactions"
+      id="fees-tab-btn-transactions"
+      data-fees-tab="transactions"
+    >Transactions</button>
+    <button
+      type="button"
+      class="sa-tab {% if active_tab == 'votes' %}is-active{% endif %}"
+      role="tab"
+      aria-selected="{% if active_tab == 'votes' %}true{% else %}false{% endif %}"
+      aria-controls="fees-tab-votes"
+      id="fees-tab-btn-votes"
+      data-fees-tab="votes"
+    >Votes</button>
+  </div>
+
+  <div
+    class="sa-tab-panel {% if active_tab != 'transactions' %}is-hidden{% endif %}"
+    id="fees-tab-transactions"
+    role="tabpanel"
+    aria-labelledby="fees-tab-btn-transactions"
+    {% if active_tab != 'transactions' %}hidden{% endif %}
+  >
+    <article class="ledger-modern {% if is_balanced %}is-balanced{% else %}is-unbalanced{% endif %}">
+      <header class="ledger-modern__head is-simple">
+        <div class="ledger-profile is-inline">
+          <div class="ledger-profile__avatar" aria-hidden="true">
+            {% if student.profile_image %}
+            <img src="{{ student.profile_image }}" alt="">
+            {% else %}
+            <span>{{ student.first_name|slice:":1" }}{{ student.last_name|slice:":1" }}</span>
+            {% endif %}
           </div>
-          <p class="text-ink-400">{{ c.category.code }} · {{ c.get_status_display }} · paid {{ c.amount_paid }}</p>
-        </li>
-        {% empty %}
-        <li class="py-6 text-ink-400">No charges posted for this learner yet.</li>
-        {% endfor %}
-      </ul>
-    </article>
-
-    <article class="sa-list-panel">
-      <div class="sa-list-panel-head">
-        <h3 class="sa-list-panel-title">Payments</h3>
-      </div>
-      <ul>
-        {% for p in payments %}
-        <li class="flex justify-between gap-3 text-sm">
+          <div class="ledger-profile__body">
+            <p class="ledger-profile__name">{{ student.display_name }}</p>
+            <p class="ledger-profile__meta">
+              {{ student.admission_number|default:student.assessment_number }}
+              · {{ student.get_academic_level_display }}{% if student.class_group %} · {{ student.class_group }}{% endif %}
+              {% if is_balanced %}
+              · <span class="sa-badge is-active">Balanced</span>
+              {% else %}
+              · <span class="sa-badge is-suspended">Out of balance</span>
+              {% endif %}
+            </p>
+          </div>
+        </div>
+        <div class="ledger-modern__metrics is-compact">
           <div>
-            <p class="font-semibold">{{ p.get_method_display }}{% if p.reference %} · {{ p.reference }}{% endif %}</p>
-            <p class="text-ink-400">{{ p.received_at|date:"d M Y H:i" }}</p>
+            <p class="ledger-modern__summary-label">Amount due</p>
+            <p class="ledger-modern__summary-value is-debit">KES {{ charged_total|floatformat:2 }}</p>
           </div>
-          <span class="font-semibold text-brand">{{ p.amount }}</span>
-        </li>
-        {% empty %}
-        <li class="py-6 text-ink-400">No payments yet.</li>
-        {% endfor %}
-      </ul>
+          <div>
+            <p class="ledger-modern__summary-label">Amount paid</p>
+            <p class="ledger-modern__summary-value is-credit">KES {{ paid_total|floatformat:2 }}</p>
+          </div>
+          <div>
+            <p class="ledger-modern__summary-label">Outstanding</p>
+            <p class="ledger-modern__summary-value is-balance">KES {{ balance|floatformat:2 }}</p>
+          </div>
+        </div>
+      </header>
+
+      <div class="ledger-modern__sheet">
+        <table class="ledger-modern__table">
+          <thead>
+            <tr>
+              <th class="is-row">#</th>
+              <th>Posted</th>
+              <th>Particulars</th>
+              <th>Method / Reference</th>
+              <th class="is-num">Due</th>
+              <th class="is-num">Paid</th>
+              <th class="is-num">Balance</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in ledger_rows %}
+            <tr {% if row.kind == 'due' %}class="is-muted"{% endif %}>
+              <td class="is-row">{{ forloop.counter }}</td>
+              <td>
+                {% if row.posted_at %}
+                <p class="ledger-modern__main">{{ row.posted_at|date:"d M Y" }}{% if row.kind == 'payment' %} · {{ row.posted_at|date:"H:i" }}{% endif %}</p>
+                {% else %}
+                <p class="ledger-modern__main">—</p>
+                {% endif %}
+                {% if row.kind == 'payment' %}
+                <p class="ledger-modern__hint">{{ row.staff_name }}</p>
+                {% endif %}
+              </td>
+              <td>
+                <p class="ledger-modern__main">{{ row.particulars }}</p>
+                <p class="ledger-modern__hint">{{ row.hint }}</p>
+              </td>
+              <td>
+                {% if row.kind == 'payment' %}
+                <p class="ledger-modern__main">{{ row.method }}</p>
+                <p class="ledger-modern__hint">{{ row.reference }}</p>
+                {% else %}
+                <p class="ledger-modern__main">—</p>
+                {% endif %}
+              </td>
+              <td class="is-num is-debit">{% if row.debit %}{{ row.debit|floatformat:2 }}{% else %}—{% endif %}</td>
+              <td class="is-num is-credit">{% if row.credit %}{{ row.credit|floatformat:2 }}{% else %}—{% endif %}</td>
+              <td class="is-num is-balance">{{ row.balance|floatformat:2 }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="7" class="ledger-modern__empty">No fees due or parent payments recorded yet.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="4">Totals</td>
+              <td class="is-num is-debit">{{ charged_total|floatformat:2 }}</td>
+              <td class="is-num is-credit">{{ paid_total|floatformat:2 }}</td>
+              <td class="is-num is-balance">{{ balance|floatformat:2 }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </article>
-  </section>
+  </div>
+
+  <div
+    class="sa-tab-panel {% if active_tab != 'votes' %}is-hidden{% endif %}"
+    id="fees-tab-votes"
+    role="tabpanel"
+    aria-labelledby="fees-tab-btn-votes"
+    {% if active_tab != 'votes' %}hidden{% endif %}
+  >
+    <div class="sa-section-head">
+      <div>
+        <h3 class="sa-section-title">Votes</h3>
+        <p class="sa-section-copy">Charged, paid, and balance for each vote head on this learner</p>
+      </div>
+      <div class="ledger-modern__metrics is-compact">
+        <div>
+          <p class="ledger-modern__summary-label">Charged</p>
+          <p class="ledger-modern__summary-value is-debit">KES {{ charged_total|floatformat:2 }}</p>
+        </div>
+        <div>
+          <p class="ledger-modern__summary-label">Paid</p>
+          <p class="ledger-modern__summary-value is-credit">KES {{ paid_total|floatformat:2 }}</p>
+        </div>
+        <div>
+          <p class="ledger-modern__summary-label">Balance</p>
+          <p class="ledger-modern__summary-value is-balance">KES {{ balance|floatformat:2 }}</p>
+        </div>
+      </div>
+    </div>
+
+    <section class="vote-ledger">
+      <div class="vote-ledger-list">
+        {% for row in vote_rows %}
+        <article class="vote-ledger-row">
+          <div class="vote-ledger-order" aria-hidden="true">{{ forloop.counter }}</div>
+          <div>
+            <p class="vote-ledger-name">{{ row.name }}</p>
+            <p class="vote-ledger-sub">{{ row.code }}</p>
+          </div>
+          <div class="vote-ledger-figures">
+            <div>
+              <p class="vote-ledger-figure-label">Charged</p>
+              <p class="vote-ledger-figure-value is-brand">KES {{ row.charged|floatformat:2 }}</p>
+            </div>
+            <div>
+              <p class="vote-ledger-figure-label">Paid</p>
+              <p class="vote-ledger-figure-value">KES {{ row.paid|floatformat:2 }}</p>
+            </div>
+            <div>
+              <p class="vote-ledger-figure-label">Balance</p>
+              <p class="vote-ledger-figure-value">KES {{ row.balance|floatformat:2 }}</p>
+            </div>
+          </div>
+        </article>
+        {% empty %}
+        <article class="vote-ledger-row">
+          <div>
+            <p class="vote-ledger-name">No vote postings yet</p>
+            <p class="vote-ledger-sub">Charges linked to fee structure votes will appear here.</p>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+</section>
+
+<script>
+(function () {
+  var tabs = document.querySelectorAll("[data-fees-tab]");
+  var panels = {
+    transactions: document.getElementById("fees-tab-transactions"),
+    votes: document.getElementById("fees-tab-votes")
+  };
+
+  function activate(name) {
+    tabs.forEach(function (btn) {
+      var on = btn.getAttribute("data-fees-tab") === name;
+      btn.classList.toggle("is-active", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    Object.keys(panels).forEach(function (key) {
+      var panel = panels[key];
+      if (!panel) return;
+      var on = key === name;
+      panel.classList.toggle("is-hidden", !on);
+      if (on) panel.removeAttribute("hidden");
+      else panel.setAttribute("hidden", "hidden");
+    });
+    try {
+      var url = new URL(window.location.href);
+      url.searchParams.set("tab", name);
+      window.history.replaceState({}, "", url.toString());
+    } catch (err) {}
+  }
+
+  tabs.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      activate(btn.getAttribute("data-fees-tab") || "transactions");
+    });
+  });
+})();
+</script>
 {% endblock %}

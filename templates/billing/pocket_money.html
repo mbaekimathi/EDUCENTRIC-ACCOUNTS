@@ -4,9 +4,7 @@
 {% block header_kicker %}Cash desk{% endblock %}
 {% block header_title %}Student pocket money{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:dashboard' %}" class="btn-ghost">← Dashboard</a>
-<a href="{% url 'billing:school_accounts' %}" class="btn-ghost">All school accounts</a>
+{% block sidebar_page_nav %}
 {% endblock %}
 
 {% block content %}
@@ -15,7 +13,7 @@
     <p class="sa-hero-kicker">Cash desk</p>
     <h2 class="sa-hero-title">Pocket money accounts</h2>
     <p class="sa-hero-copy">
-      Choose a pocket money account to open its ledger, top-ups, and vote allocation.
+      Choose a pocket money account to open its classes, then top up or withdraw learner pocket money.
     </p>
   </div>
 </section>
@@ -101,7 +99,7 @@
     <p class="sa-empty-copy">
       Register a school account and set its category to Pocket money to see it here.
     </p>
-    <a href="{% url 'billing:school_accounts' %}" class="btn-primary">Go to school accounts</a>
+    <p class="text-sm text-ink-600">Open <strong>School accounts</strong> in the sidebar to manage pocket money accounts.</p>
   </div>
   {% endif %}
 </section>

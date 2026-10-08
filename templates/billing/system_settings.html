@@ -3,10 +3,6 @@
 {% block title %}System settings · Accounts{% endblock %}
 {% block header_title %}System settings{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:dashboard' %}" class="btn-ghost">← Dashboard</a>
-{% endblock %}
-
 {% block sidebar_page_nav %}
 {% include "components/settings_nav.html" %}
 {% endblock %}
@@ -20,7 +16,8 @@
     </div>
   </section>
 
-  <section class="overflow-hidden rounded-[1.5rem] border border-ink-950/8 bg-white/90 shadow-panel backdrop-blur">
+  {# Module cards for mobile only — desktop uses Settings links in the sidebar #}
+  <section class="overflow-hidden rounded-[1.5rem] border border-ink-950/8 bg-white/90 shadow-panel backdrop-blur lg:hidden">
     <header class="border-b border-ink-950/8 px-5 py-4 sm:px-6">
       <h3 class="font-display text-xl font-semibold text-ink-950">Settings modules</h3>
       <p class="mt-0.5 text-sm text-ink-600">Choose a configuration area</p>
@@ -33,5 +30,11 @@
       {% url 'billing:payments_settings' as payments_href %}
       {% include "components/module_card.html" with href=payments_href meta="Finance" title="Payments settings" blurb="Payment methods, receipt defaults, and collection preferences." %}
     </div>
+  </section>
+
+  <section class="hidden lg:block">
+    <p class="text-sm text-ink-600">
+      Open a settings area from the <strong>Settings</strong> links in the sidebar.
+    </p>
   </section>
 {% endblock %}

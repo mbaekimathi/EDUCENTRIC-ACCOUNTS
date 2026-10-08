@@ -4,11 +4,6 @@
 {% block header_kicker %}System settings{% endblock %}
 {% block header_title %}Accounts settings{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:system_settings' %}" class="btn-ghost">← System settings</a>
-<button type="button" class="btn-primary" data-open-account-modal data-mode="create">+ Register account</button>
-{% endblock %}
-
 {% block sidebar_page_nav %}
 <p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Actions</p>
 <button type="button" class="app-nav-link app-nav-button" data-open-account-modal data-mode="create" :title="sidebarCollapsed ? 'Register account' : null">
@@ -27,11 +22,6 @@
     <p class="sa-hero-copy">
       Open an account to manage its votes. You can also edit, suspend, unsuspend, or delete accounts here.
     </p>
-  </div>
-  <div class="sa-hero__body flex justify-end">
-    <button type="button" class="btn-primary sa-hero-cta" data-open-account-modal data-mode="create">
-      Register account
-    </button>
   </div>
 </section>
 
@@ -56,6 +46,9 @@
       <h3 class="sa-section-title">Registered accounts</h3>
       <p class="sa-section-copy">Click an account to open votes settings.</p>
     </div>
+    <button type="button" class="btn-primary" data-open-account-modal data-mode="create">
+      Register account
+    </button>
   </div>
 
   {% if registered_accounts %}
@@ -77,20 +70,6 @@
             {{ row.account.category_label }}
             {% if row.account.description %} · {{ row.account.description }}{% endif %}
           </p>
-          <div class="sa-chip-row sa-chip-row-inline">
-            {% for mode in row.account.payment_mode_labels %}
-            <span class="sa-chip">{{ mode }}</span>
-            {% empty %}
-            <span class="sa-chip is-muted">No payment modes</span>
-            {% endfor %}
-            {% for level in row.levels %}
-            <span class="sa-chip is-soft">{{ level.name }}</span>
-            {% empty %}
-            <span class="sa-chip is-muted">No levels linked</span>
-            {% endfor %}
-            <span class="sa-chip">{{ row.account.get_vote_fund_allocation_display }}</span>
-            <span class="sa-chip is-soft">Votes settings →</span>
-          </div>
         </div>
       </a>
 
@@ -138,8 +117,7 @@
   <div class="sa-empty">
     <div class="sa-empty-mark" aria-hidden="true">A</div>
     <h4 class="sa-empty-title">No accounts yet</h4>
-    <p class="sa-empty-copy">Register the first school account to manage it from settings.</p>
-    <button type="button" class="btn-primary" data-open-account-modal data-mode="create">Register account</button>
+    <p class="sa-empty-copy">Use <strong>Register account</strong> in the sidebar to add the first school account.</p>
   </div>
   {% endif %}
 </section>
@@ -232,8 +210,10 @@
               <span class="block">{{ label }}</span>
               {% if value == "EQUAL" %}
               <span class="mt-0.5 block text-xs font-normal text-ink-400">Split available funds evenly across all votes.</span>
-              {% else %}
+              {% elif value == "PRIORITY_ORDER" %}
               <span class="mt-0.5 block text-xs font-normal text-ink-400">Fill votes in allocation-order priority (1 first, then 2, and so on).</span>
+              {% elif value == "DISABLED" %}
+              <span class="mt-0.5 block text-xs font-normal text-ink-400">Money can enter and leave this account without being distributed to votes.</span>
               {% endif %}
             </span>
           </label>
@@ -282,13 +262,24 @@
   }
 
   function openModal() {
-    if (typeof modal.showModal === "function") modal.showModal();
-    else modal.setAttribute("open", "open");
+    try {
+      if (typeof modal.showModal === "function") {
+        if (!modal.open) modal.showModal();
+      } else {
+        modal.setAttribute("open", "open");
+      }
+    } catch (err) {
+      modal.setAttribute("open", "open");
+    }
   }
 
   function closeModal() {
-    if (typeof modal.close === "function") modal.close();
-    else modal.removeAttribute("open");
+    try {
+      if (typeof modal.close === "function" && modal.open) modal.close();
+      else modal.removeAttribute("open");
+    } catch (err) {
+      modal.removeAttribute("open");
+    }
   }
 
   function setChecked(selector, values) {
@@ -306,50 +297,61 @@
   }
 
   function resetCreateForm() {
-    actionInput.value = "create";
-    idInput.value = "";
-    title.textContent = "Register account";
-    submitLabel.textContent = "Save account";
-    category.value = "";
+    if (actionInput) actionInput.value = "create";
+    if (idInput) idInput.value = "";
+    if (title) title.textContent = "Register account";
+    if (submitLabel) submitLabel.textContent = "Save account";
+    if (category) category.value = "";
     if (customCategoryInput) customCategoryInput.value = "";
     syncCustomCategoryField();
-    nameInput.value = "";
-    description.value = "";
+    if (nameInput) nameInput.value = "";
+    if (description) description.value = "";
     setChecked(".js-payment-mode", []);
     setChecked(".js-academic-level", []);
     setRadio(".js-vote-fund-allocation", "PRIORITY_ORDER");
   }
 
   function fillEditForm(button) {
-    actionInput.value = "edit";
-    idInput.value = button.getAttribute("data-account-id") || "";
-    title.textContent = "Edit account";
-    submitLabel.textContent = "Save changes";
-    category.value = button.getAttribute("data-category") || "";
+    if (actionInput) actionInput.value = "edit";
+    if (idInput) idInput.value = button.getAttribute("data-account-id") || "";
+    if (title) title.textContent = "Edit account";
+    if (submitLabel) submitLabel.textContent = "Save changes";
+    if (category) category.value = button.getAttribute("data-category") || "";
     if (customCategoryInput) {
       customCategoryInput.value = button.getAttribute("data-custom-category") || "";
     }
     syncCustomCategoryField();
-    nameInput.value = button.getAttribute("data-name") || "";
-    description.value = button.getAttribute("data-description") || "";
+    if (nameInput) nameInput.value = button.getAttribute("data-name") || "";
+    if (description) description.value = button.getAttribute("data-description") || "";
     setChecked(".js-payment-mode", (button.getAttribute("data-payment-modes") || "").split(",").filter(Boolean));
     setChecked(".js-academic-level", (button.getAttribute("data-levels") || "").split(",").filter(Boolean));
     setRadio(".js-vote-fund-allocation", button.getAttribute("data-vote-fund-allocation") || "PRIORITY_ORDER");
   }
 
-  document.querySelectorAll("[data-open-account-modal]").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      if (btn.getAttribute("data-mode") === "edit") fillEditForm(btn);
+  // Document delegation so sidebar + page buttons always open the modal.
+  document.addEventListener("click", function (event) {
+    var openBtn = event.target.closest("[data-open-account-modal]");
+    if (openBtn) {
+      event.preventDefault();
+      if (openBtn.getAttribute("data-mode") === "edit") fillEditForm(openBtn);
       else resetCreateForm();
       openModal();
-    });
+      return;
+    }
+    var closeBtn = event.target.closest("[data-close-account-modal]");
+    if (closeBtn) {
+      event.preventDefault();
+      closeModal();
+    }
   });
-  document.querySelectorAll("[data-close-account-modal]").forEach(function (btn) {
-    btn.addEventListener("click", closeModal);
-  });
+
   modal.addEventListener("click", function (event) {
     if (event.target === modal) closeModal();
   });
+
+  {% if open_account_modal %}
+  openModal();
+  {% endif %}
 })();
 </script>
 {% endblock %}

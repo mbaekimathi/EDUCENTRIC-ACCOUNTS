@@ -4,12 +4,7 @@
 {% block header_kicker %}Payables{% endblock %}
 {% block header_title %}Supplier accounts{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:invoices' %}" class="btn-ghost">← Billing &amp; invoices</a>
-{% endblock %}
-
 {% block sidebar_page_nav %}
-{% include "components/finance_nav.html" %}
 {% endblock %}
 
 {% block content %}

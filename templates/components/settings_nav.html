@@ -1,62 +1,45 @@
 <p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Settings</p>
 
-<a href="{% url 'billing:accounts_settings' %}"
-
-   class="app-nav-link {% if request.resolver_match.url_name == 'accounts_settings' %}is-active{% endif %}"
-
-   :title="sidebarCollapsed ? 'Accounts settings' : null"
-
+<a href="{% url 'billing:system_settings' %}"
+   class="app-nav-link {% if request.resolver_match.url_name == 'system_settings' %}is-active{% endif %}"
+   :title="sidebarCollapsed ? 'System settings' : null"
    @click="sidebarOpen = false">
-
   <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-
-    <path d="M4 19V6.5L12 4l8 2.5V19" stroke-linejoin="round"/>
-
-    <path d="M4 19h16M9 19v-5h6v5" stroke-linecap="round" stroke-linejoin="round"/>
-
+    <circle cx="12" cy="12" r="3"/>
+    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" stroke-linecap="round"/>
   </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">System settings</span>
+</a>
 
+<a href="{% url 'billing:accounts_settings' %}"
+   class="app-nav-link {% if request.resolver_match.url_name == 'accounts_settings' or request.resolver_match.url_name == 'account_votes_settings' %}is-active{% endif %}"
+   :title="sidebarCollapsed ? 'Accounts settings' : null"
+   @click="sidebarOpen = false">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <path d="M4 19V6.5L12 4l8 2.5V19" stroke-linejoin="round"/>
+    <path d="M4 19h16M9 19v-5h6v5" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
   <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Accounts settings</span>
-
 </a>
 
 <a href="{% url 'billing:financial_year_settings' %}"
-
    class="app-nav-link {% if request.resolver_match.url_name == 'financial_year_settings' %}is-active{% endif %}"
-
    :title="sidebarCollapsed ? 'Financial year' : null"
-
    @click="sidebarOpen = false">
-
   <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-
     <rect x="4" y="5" width="16" height="15" rx="2"/>
-
     <path d="M8 3v4M16 3v4M4 10h16" stroke-linecap="round"/>
-
   </svg>
-
   <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Financial year</span>
-
 </a>
 
 <a href="{% url 'billing:payments_settings' %}"
-
    class="app-nav-link {% if request.resolver_match.url_name == 'payments_settings' %}is-active{% endif %}"
-
    :title="sidebarCollapsed ? 'Payments settings' : null"
-
    @click="sidebarOpen = false">
-
   <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-
     <rect x="3.5" y="7" width="17" height="11" rx="2"/>
-
     <path d="M3.5 10h17M16 12.5h.01" stroke-linecap="round"/>
-
   </svg>
-
   <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Payments settings</span>
-
 </a>
-

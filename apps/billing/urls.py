@@ -18,6 +18,11 @@ urlpatterns = [
         name="student_fees_level_students",
     ),
     path(
+        "student-fees/<int:account_id>/levels/<int:level_id>/transactions/",
+        views.student_fees_level_transactions,
+        name="student_fees_level_transactions",
+    ),
+    path(
         "student-fees/<int:account_id>/levels/<int:level_id>/stk/initiate/",
         views.student_fees_stk_initiate,
         name="student_fees_stk_initiate",
@@ -118,6 +123,16 @@ urlpatterns = [
         "school-accounts/<int:account_id>/",
         views.school_account_detail,
         name="school_account_detail",
+    ),
+    path(
+        "school-accounts/<int:account_id>/levels/<int:level_id>/",
+        views.pocket_money_level_students,
+        name="pocket_money_level_students",
+    ),
+    path(
+        "school-accounts/<int:account_id>/levels/<int:level_id>/students/<int:student_id>/",
+        views.pocket_money_student_transactions,
+        name="pocket_money_student_transactions",
     ),
     path("students/", views.student_search, name="student_search"),
     path("students/<int:student_id>/", views.student_ledger, name="student_ledger"),

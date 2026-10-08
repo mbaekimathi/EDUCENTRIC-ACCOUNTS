@@ -4,13 +4,14 @@
 {% block header_kicker %}Accounts settings{% endblock %}
 {% block header_title %}{{ account.name }} votes{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:accounts_settings' %}" class="btn-ghost">← Accounts settings</a>
-<button type="button" class="btn-primary" data-open-vote-modal>+ Register vote</button>
-{% endblock %}
-
 {% block sidebar_page_nav %}
-<p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Actions</p>
+{% if account.category == "STUDENT_FEES" %}
+<p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Fees</p>
+{% url 'billing:student_fees_fee_structure' account.id as fee_structure_href %}
+{% include "components/sidebar_page_link.html" with href=fee_structure_href label="Fee structure" %}
+{% endif %}
+{% if account.votes_enabled %}
+<p class="app-nav-label app-nav-label-section mb-2 {% if account.category == 'STUDENT_FEES' %}mt-4 {% endif %}px-2" :class="sidebarCollapsed && 'lg:hidden'">Actions</p>
 <button type="button" class="app-nav-link app-nav-button" data-open-vote-modal :title="sidebarCollapsed ? 'Register vote' : null">
   <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
     <path d="M8 7h8M8 12h8M8 17h5" stroke-linecap="round"/>
@@ -18,6 +19,7 @@
   </svg>
   <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Register vote</span>
 </button>
+{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -26,14 +28,29 @@
     <p class="sa-hero-kicker">{{ account.category_label }}</p>
     <h2 class="sa-hero-title">{{ account.name }} votes</h2>
     <p class="sa-hero-copy">
-      Register and manage budget votes
-      · {% if account.vote_fund_allocation == "EQUAL" %}allocate equally{% else %}allocate by priority order{% endif %}.
+      {% if account.vote_fund_allocation == "DISABLED" %}
+      Votes are disabled on this account — money can enter and leave without being distributed to votes.
+      {% elif account.vote_fund_allocation == "EQUAL" %}
+      Register and manage budget votes · allocate equally.
+      {% else %}
+      Register and manage budget votes · allocate by priority order.
+      {% endif %}
     </p>
   </div>
-  <div class="sa-hero__body flex justify-end">
-    <button type="button" class="btn-primary sa-hero-cta" data-open-vote-modal>Register vote</button>
+</section>
+
+{% if not account.votes_enabled %}
+<section class="sa-section">
+  <div class="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-4 text-sm text-amber-950" role="status">
+    <p class="font-semibold">Votes disabled</p>
+    <p class="mt-1">
+      Funds on this account are not distributed to votes. Top-ups and withdrawals move freely on the account balance.
+      To use votes again, edit the account and choose equal or priority allocation.
+    </p>
+    <a href="{% url 'billing:accounts_settings' %}" class="btn-ghost btn-compact mt-3 inline-flex">Open Accounts settings</a>
   </div>
 </section>
+{% endif %}
 
 <section class="sa-stats">
   <article class="sa-stat">
@@ -61,7 +78,6 @@
       <h3 class="sa-section-title">Registered votes</h3>
       <p class="sa-section-copy">Edit, suspend, unsuspend, or delete each vote.</p>
     </div>
-    <button type="button" class="btn-ghost" data-open-vote-modal>Register vote</button>
   </div>
 
   {% if votes %}
@@ -138,8 +154,7 @@
   <div class="sa-empty">
     <div class="sa-empty-mark" aria-hidden="true">V</div>
     <h4 class="sa-empty-title">No votes yet</h4>
-    <p class="sa-empty-copy">Register the first vote to allocate topped-up funds on this account.</p>
-    <button type="button" class="btn-primary" data-open-vote-modal>Register vote</button>
+    <p class="sa-empty-copy">Use <strong>Register vote</strong> in the sidebar to add the first vote head.</p>
   </div>
   {% endif %}
 </section>

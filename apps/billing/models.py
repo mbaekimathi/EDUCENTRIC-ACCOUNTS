@@ -125,6 +125,7 @@ class Payment(models.Model):
         MPESA = "MPESA", "M-Pesa"
         BANK = "BANK", "Bank transfer"
         CHEQUE = "CHEQUE", "Cheque"
+        BARTER = "BARTER", "Barter trade"
         OTHER = "OTHER", "Other"
 
     student_id = models.PositiveBigIntegerField(db_index=True)
@@ -269,11 +270,13 @@ class SchoolAccount(models.Model):
         MPESA = "MPESA", "M-Pesa"
         BANK = "BANK", "Bank transfer"
         CHEQUE = "CHEQUE", "Cheque"
+        BARTER = "BARTER", "Barter trade"
         OTHER = "OTHER", "Other"
 
     class VoteFundAllocation(models.TextChoices):
         EQUAL = "EQUAL", "Equally among votes"
         PRIORITY_ORDER = "PRIORITY_ORDER", "By allocation order (priority)"
+        DISABLED = "DISABLED", "Disable votes"
 
     category = models.CharField(max_length=32, choices=Category.choices)
     custom_category = models.CharField(max_length=120, blank=True)
@@ -315,6 +318,10 @@ class SchoolAccount(models.Model):
     def payment_mode_labels(self):
         labels = dict(self.PaymentMode.choices)
         return [labels.get(code, code) for code in (self.payment_modes or [])]
+
+    @property
+    def votes_enabled(self):
+        return self.vote_fund_allocation != self.VoteFundAllocation.DISABLED
 
 
 def generate_topup_reference_code() -> str:
@@ -403,6 +410,7 @@ class AccountWithdraw(models.Model):
         MPESA = "MPESA", "M-Pesa"
         BANK = "BANK", "Bank transfer"
         CHEQUE = "CHEQUE", "Cheque"
+        BARTER = "BARTER", "Barter trade"
         OTHER = "OTHER", "Other"
 
     class Status(models.TextChoices):
@@ -456,6 +464,111 @@ class AccountWithdraw(models.Model):
             if not self.reference_code:
                 self.reference_code = generate_withdraw_reference_code()
         super().save(*args, **kwargs)
+
+
+def generate_pocket_money_reference_code() -> str:
+    import secrets
+
+    stamp = timezone.now().strftime("%Y%m%d%H%M")
+    return f"PM-{stamp}-{secrets.token_hex(3).upper()}"
+
+
+class StudentPocketMoneyEntry(models.Model):
+    """Per-learner pocket money credit or debit against a pocket money account."""
+
+    class Direction(models.TextChoices):
+        CREDIT = "CREDIT", "Top up"
+        DEBIT = "DEBIT", "Withdraw"
+
+    class Method(models.TextChoices):
+        CASH = "CASH", "Cash"
+        MANUAL_MPESA = "MANUAL_MPESA", "Manual M-Pesa"
+        STK_PUSH = "STK_PUSH", "STK Push (M-Pesa)"
+        CHEQUE = "CHEQUE", "Cheque"
+        BANK = "BANK", "Bank transfer"
+        OTHER = "OTHER", "Other"
+
+    class Status(models.TextChoices):
+        APPROVED = "APPROVED", "Approved"
+        PENDING = "PENDING", "Pending"
+        CANCELLED = "CANCELLED", "Cancelled"
+
+    account = models.ForeignKey(
+        SchoolAccount,
+        on_delete=models.PROTECT,
+        related_name="pocket_money_entries",
+    )
+    student_id = models.PositiveBigIntegerField(
+        db_index=True,
+        help_text="admissions_student.id (no DB FK — shared with ADMINISTRATION)",
+    )
+    direction = models.CharField(max_length=10, choices=Direction.choices)
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    method = models.CharField(max_length=20, choices=Method.choices)
+    description = models.CharField(max_length=255, blank=True)
+    reference_number = models.CharField(max_length=120)
+    reference_code = models.CharField(max_length=40, unique=True)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.APPROVED,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pocket_money_entries_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "accounts_student_pocket_money_entry"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["account", "student_id"]),
+        ]
+
+    def __str__(self):
+        return f"{self.reference_code} · {self.direction} · {self.amount}"
+
+    def save(self, *args, **kwargs):
+        if not self.reference_code:
+            for _ in range(8):
+                candidate = generate_pocket_money_reference_code()
+                if not type(self).objects.filter(reference_code=candidate).exists():
+                    self.reference_code = candidate
+                    break
+            if not self.reference_code:
+                self.reference_code = generate_pocket_money_reference_code()
+        super().save(*args, **kwargs)
+
+
+def student_pocket_money_balance(account, student_id) -> Decimal:
+    """Approved credits minus approved debits for one learner on a pocket money account."""
+    credits = (
+        StudentPocketMoneyEntry.objects.filter(
+            account=account,
+            student_id=student_id,
+            direction=StudentPocketMoneyEntry.Direction.CREDIT,
+            status=StudentPocketMoneyEntry.Status.APPROVED,
+        ).aggregate(total=Sum("amount"))["total"]
+        or Decimal("0.00")
+    )
+    debits = (
+        StudentPocketMoneyEntry.objects.filter(
+            account=account,
+            student_id=student_id,
+            direction=StudentPocketMoneyEntry.Direction.DEBIT,
+            status=StudentPocketMoneyEntry.Status.APPROVED,
+        ).aggregate(total=Sum("amount"))["total"]
+        or Decimal("0.00")
+    )
+    return credits - debits
 
 
 def generate_vote_reference_code() -> str:
@@ -1350,6 +1463,91 @@ def get_or_create_store_supplier(*, name: str, phone_number: str, user=None):
         supplier.name = cleaned_name
         supplier.save(update_fields=["name", "updated_at"])
     return supplier, False
+
+
+SUPPLIER_PAYABLE_STATUSES = (
+    StoreStockMovement.PaymentStatus.UNPAID,
+    StoreStockMovement.PaymentStatus.PENDING,
+    StoreStockMovement.PaymentStatus.PARTIAL,
+)
+
+
+def supplier_payable_movements(supplier_id):
+    """Open stock-in deliveries the school still owes a supplier for."""
+    return (
+        StoreStockMovement.objects.filter(
+            supplier_id=supplier_id,
+            direction=StoreStockMovement.Direction.IN,
+            payment_status__in=SUPPLIER_PAYABLE_STATUSES,
+            invoice_amount__isnull=False,
+        )
+        .select_related("item", "item__expense_category")
+        .order_by("created_at", "id")
+    )
+
+
+def supplier_outstanding_balance(supplier_id) -> Decimal:
+    """Total unpaid invoice balance the school owes a supplier."""
+    outstanding = Decimal("0.00")
+    for movement in supplier_payable_movements(supplier_id):
+        outstanding += movement.amount_outstanding or Decimal("0.00")
+    return outstanding
+
+
+def apply_barter_to_supplier(
+    *,
+    supplier,
+    amount: Decimal,
+    account,
+    user=None,
+    reference: str = "",
+    notes: str = "",
+) -> Decimal:
+    """
+    Settle supplier debt by trading against a student fee payment.
+    Applies oldest open deliveries first. No cash withdrawal is created.
+    """
+    from django.db import transaction
+
+    if amount <= 0:
+        raise ValueError("Barter amount must be greater than zero.")
+
+    remaining = amount
+    settled = Decimal("0.00")
+    with transaction.atomic():
+        movements = list(
+            supplier_payable_movements(supplier.id).select_for_update()
+        )
+        for movement in movements:
+            if remaining <= 0:
+                break
+            owed = movement.amount_outstanding or Decimal("0.00")
+            if owed <= 0:
+                continue
+            slice_amount = min(remaining, owed)
+            movement.amount_paid = (movement.amount_paid or Decimal("0.00")) + slice_amount
+            movement.refresh_payment_status(save=False)
+            movement.save(update_fields=["amount_paid", "payment_status"])
+
+            payment = StoreSupplierPayment(
+                movement=movement,
+                account=account,
+                amount=slice_amount,
+                method=AccountWithdraw.Method.BARTER,
+                reference_number=reference or f"BARTER-{supplier.id}",
+                created_by=user if getattr(user, "is_authenticated", False) else None,
+            )
+            payment.save()
+            settled += slice_amount
+            remaining -= slice_amount
+
+    if settled <= 0:
+        raise ValueError("This supplier has no tradable outstanding balance.")
+    if settled < amount:
+        raise ValueError(
+            f"Only KES {settled:,.2f} is owed to this supplier; reduce the barter amount."
+        )
+    return settled
 
 
 def generate_supplier_payment_reference_code() -> str:

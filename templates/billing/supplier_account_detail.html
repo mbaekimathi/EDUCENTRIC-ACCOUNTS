@@ -4,12 +4,7 @@
 {% block header_kicker %}Supplier account{% endblock %}
 {% block header_title %}{{ supplier.name }}{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:supplier_accounts' %}" class="btn-ghost">← Suppliers</a>
-{% endblock %}
-
 {% block sidebar_page_nav %}
-{% include "components/finance_nav.html" %}
 {% endblock %}
 
 {% block content %}

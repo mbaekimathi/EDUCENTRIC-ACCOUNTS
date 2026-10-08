@@ -3,11 +3,6 @@
 {% block title %}Register item · Store{% endblock %}
 {% block header_title %}Register item{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:store_management' %}" class="btn-ghost">← Store</a>
-<button type="button" class="btn-primary" data-open-item-modal>+ Register item</button>
-{% endblock %}
-
 {% block sidebar_page_nav %}
 {% include "components/store_nav.html" %}
 {% endblock %}
@@ -19,11 +14,6 @@
     <h2 class="sa-hero-title">{{ module.title }}</h2>
     <p class="sa-hero-copy">{{ module.copy }}</p>
   </div>
-  <div class="sa-hero__body flex flex-wrap justify-end gap-2">
-    <button type="button" class="btn-primary sa-hero-cta" data-open-item-modal>
-      Register item
-    </button>
-  </div>
 </section>
 
 <section class="sa-section">
@@ -32,7 +22,6 @@
       <h3 class="sa-section-title">Registered items</h3>
       <p class="sa-section-copy">{{ item_count }} item{{ item_count|pluralize }} in the store catalogue</p>
     </div>
-    <button type="button" class="btn-ghost" data-open-item-modal>Register item</button>
   </div>
 
   {% if items %}
@@ -78,8 +67,7 @@
   <div class="sa-empty">
     <div class="sa-empty-mark" aria-hidden="true">I</div>
     <h4 class="sa-empty-title">No items yet</h4>
-    <p class="sa-empty-copy">Register the first store item to start the catalogue.</p>
-    <button type="button" class="btn-primary" data-open-item-modal>Register item</button>
+    <p class="sa-empty-copy">Use <strong>Register item</strong> in the sidebar to add the first catalogue entry.</p>
   </div>
   {% endif %}
 </section>

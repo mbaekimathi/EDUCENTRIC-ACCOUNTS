@@ -4,16 +4,22 @@
 {% block header_kicker %}Petty cashbook{% endblock %}
 {% block header_title %}{{ account.name }}{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:petty_cashbook' %}" class="btn-ghost">← Petty cashbook</a>
-{% if account.is_active %}
-<button type="button" class="btn-ghost" data-open-topup-modal>Top up</button>
-<button type="button" class="btn-primary" data-open-withdraw-modal>Withdraw</button>
-{% endif %}
-{% endblock %}
-
 {% block sidebar_page_nav %}
-{% include "components/finance_nav.html" %}
+{% if account.is_active %}
+<p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Actions</p>
+<button type="button" class="app-nav-link app-nav-button" data-open-topup-modal :title="sidebarCollapsed ? 'Top up' : null">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <path d="M12 3v18M7 8h7.5a3.5 3.5 0 0 1 0 7H9" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Top up</span>
+</button>
+<button type="button" class="app-nav-link app-nav-button" data-open-withdraw-modal :title="sidebarCollapsed ? 'Withdraw' : null">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <path d="M12 21V3M7 16h7.5a3.5 3.5 0 0 0 0-7H9" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Withdraw</span>
+</button>
+{% endif %}
 {% endblock %}
 
 {% block content %}

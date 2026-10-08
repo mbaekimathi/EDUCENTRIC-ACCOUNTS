@@ -4,12 +4,6 @@
 {% block header_kicker %}Ledgers{% endblock %}
 {% block header_title %}School accounts{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:dashboard' %}" class="btn-ghost">← Dashboard</a>
-<button type="button" class="btn-ghost" data-open-topup-modal>Top up</button>
-<button type="button" class="btn-primary" data-open-account-modal data-mode="create">+ Register account</button>
-{% endblock %}
-
 {% block sidebar_page_nav %}
 <p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Actions</p>
 <button type="button" class="app-nav-link app-nav-button" data-open-account-modal data-mode="create" :title="sidebarCollapsed ? 'Register account' : null">
@@ -35,11 +29,6 @@
       Account balances from approved top-ups. Open an account to view its ledger.
     </p>
   </div>
-  <div class="sa-hero__body flex flex-wrap justify-end gap-2">
-    <button type="button" class="btn-primary sa-hero-cta" data-open-topup-modal>
-      Top up account
-    </button>
-  </div>
 </section>
 
 <section class="sa-stats anim-rise-delay">
@@ -64,7 +53,6 @@
       <h3 class="sa-section-title">Accounts &amp; balances</h3>
       <p class="sa-section-copy">Approved top-ups only. Pending entries do not affect balance yet.</p>
     </div>
-    <button type="button" class="btn-ghost" data-open-account-modal data-mode="create">Register account</button>
   </div>
 
   {% if registered_accounts %}
@@ -110,8 +98,7 @@
   <div class="sa-empty">
     <div class="sa-empty-mark" aria-hidden="true">A</div>
     <h4 class="sa-empty-title">No accounts yet</h4>
-    <p class="sa-empty-copy">Register the first school account to start tracking balances.</p>
-    <button type="button" class="btn-primary" data-open-account-modal data-mode="create">Register account</button>
+    <p class="sa-empty-copy">Use <strong>Register account</strong> in the sidebar to get started.</p>
   </div>
   {% endif %}
 </section>
@@ -122,7 +109,6 @@
       <h3 class="sa-section-title">Recent top-ups</h3>
       <p class="sa-section-copy">Latest credits posted to school accounts</p>
     </div>
-    <button type="button" class="btn-ghost" data-open-topup-modal>Top up account</button>
   </div>
 
   <div class="sa-table-wrap">
@@ -252,8 +238,10 @@
               <span class="block">{{ label }}</span>
               {% if value == "EQUAL" %}
               <span class="mt-0.5 block text-xs font-normal text-ink-400">Split available funds evenly across all votes.</span>
-              {% else %}
+              {% elif value == "PRIORITY_ORDER" %}
               <span class="mt-0.5 block text-xs font-normal text-ink-400">Fill votes in allocation-order priority (1 first, then 2, and so on).</span>
+              {% elif value == "DISABLED" %}
+              <span class="mt-0.5 block text-xs font-normal text-ink-400">Money can enter and leave this account without being distributed to votes.</span>
               {% endif %}
             </span>
           </label>

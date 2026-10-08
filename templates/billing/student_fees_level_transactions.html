@@ -1,0 +1,128 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}{{ level.name }} · Class fees ledger{% endblock %}
+{% block header_kicker %}{{ account.name }}{% endblock %}
+{% block header_title %}{{ level.name }}{% endblock %}
+
+{% block sidebar_page_nav %}
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">{{ account.name }}</p>
+    <h2 class="sa-hero-title">{{ level.name }}</h2>
+    <p class="sa-hero-copy">
+      Class fees ledger · expected vs paid per learner
+      {% if level.code %}· {{ level.code }}{% endif %}
+    </p>
+  </div>
+</section>
+
+<section class="sa-section">
+  <article class="ledger-modern {% if is_balanced %}is-balanced{% else %}is-unbalanced{% endif %}">
+    <header class="ledger-modern__head is-simple">
+      <div class="ledger-profile is-inline">
+        <div class="ledger-profile__body">
+          <p class="ledger-profile__name">{{ level.name }} · Fees ledger</p>
+          <p class="ledger-profile__meta">
+            {{ ledger_rows|length }} learner{{ ledger_rows|length|pluralize }}
+            · {{ paid_student_count }} paid
+            {% if is_balanced %}
+            · <span class="sa-badge is-active">Balanced</span>
+            {% else %}
+            · <span class="sa-badge is-suspended">Out of balance</span>
+            {% endif %}
+          </p>
+        </div>
+      </div>
+      <div class="ledger-modern__metrics is-compact">
+        <div>
+          <p class="ledger-modern__summary-label">Expected</p>
+          <p class="ledger-modern__summary-value is-debit">KES {{ totals.charged|floatformat:2 }}</p>
+        </div>
+        <div>
+          <p class="ledger-modern__summary-label">Paid</p>
+          <p class="ledger-modern__summary-value is-credit">KES {{ totals.paid|floatformat:2 }}</p>
+        </div>
+        <div>
+          <p class="ledger-modern__summary-label">Balance</p>
+          <p class="ledger-modern__summary-value is-balance">KES {{ totals.balance|floatformat:2 }}</p>
+        </div>
+      </div>
+    </header>
+
+    <form method="get" class="mb-4 max-w-xl px-4 pt-4">
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Search learners</span>
+        <input type="search" name="q" value="{{ q }}" placeholder="Name, admission, or assessment…" class="field-input">
+      </label>
+    </form>
+
+    <div class="ledger-modern__sheet">
+      <table class="ledger-modern__table">
+        <thead>
+          <tr>
+            <th class="is-row">#</th>
+            <th>Learner</th>
+            <th>Admission</th>
+            <th class="is-num">Expected</th>
+            <th class="is-num">Paid</th>
+            <th class="is-num">Balance</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in ledger_rows %}
+          <tr {% if row.expected <= 0 and row.paid <= 0 %}class="is-muted"{% endif %}>
+            <td class="is-row">{{ row.row_no }}</td>
+            <td>
+              <p class="ledger-modern__main">{{ row.student.display_name }}</p>
+              <p class="ledger-modern__hint">
+                {% if row.balance <= 0 and row.expected > 0 %}
+                <span class="sa-badge is-active">Cleared</span>
+                {% elif row.paid > 0 %}
+                <span class="sa-badge is-pending">Part paid</span>
+                {% elif row.expected > 0 %}
+                <span class="sa-badge is-suspended">Not paid</span>
+                {% else %}
+                No charge
+                {% endif %}
+              </p>
+            </td>
+            <td>{{ row.student.admission_number|default:row.student.assessment_number }}</td>
+            <td class="is-num is-debit">{{ row.expected|floatformat:2 }}</td>
+            <td class="is-num is-credit">{{ row.paid|floatformat:2 }}</td>
+            <td class="is-num is-balance">{{ row.balance|floatformat:2 }}</td>
+            <td>
+              <a href="{% url 'billing:student_ledger' row.student.id %}" class="btn-ghost btn-compact">Open</a>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="7" class="ledger-modern__empty">
+              {% if not student_key %}
+              Could not map this academic level to learners.
+              {% elif q %}
+              No learners match “{{ q }}”.
+              {% else %}
+              No learners in this class yet.
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3">Totals</td>
+            <td class="is-num is-debit">{{ totals.charged|floatformat:2 }}</td>
+            <td class="is-num is-credit">{{ totals.paid|floatformat:2 }}</td>
+            <td class="is-num is-balance">{{ totals.balance|floatformat:2 }}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </article>
+</section>
+{% endblock %}

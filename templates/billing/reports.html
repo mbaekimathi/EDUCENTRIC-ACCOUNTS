@@ -3,12 +3,10 @@
 {% block title %}Reports · Accounts{% endblock %}
 {% block header_title %}Reports{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:dashboard' %}" class="btn-ghost">← Dashboard</a>
-{% endblock %}
-
 {% block sidebar_page_nav %}
-{% include "components/finance_nav.html" %}
+<p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Reports</p>
+{% url 'billing:reports' as reports_reset_href %}
+{% include "components/sidebar_page_link.html" with href=reports_reset_href label="Reset filters" %}
 {% endblock %}
 
 {% block content %}
@@ -38,7 +36,7 @@
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: rgba(15, 23, 42, 0.4);
+    color: rgba(15, 23, 42, 0.72);
   }
   .rp-step-report { grid-template-columns: 1fr 1.2fr; }
   .rp-step-period { grid-template-columns: auto 1fr 1fr auto; }
@@ -52,7 +50,7 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: rgba(15, 23, 42, 0.45);
+    color: rgba(15, 23, 42, 0.72);
   }
   .rp-field .field-input,
   .rp-field select.field-input,
@@ -301,7 +299,6 @@
 
       <div class="rp-actions">
         <button type="submit" class="btn-primary">Generate</button>
-        <a href="{% url 'billing:reports' %}" class="btn-ghost">Reset</a>
       </div>
     </div>
 

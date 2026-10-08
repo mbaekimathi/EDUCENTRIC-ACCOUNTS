@@ -12,6 +12,7 @@ from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import format_html
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
@@ -53,7 +54,9 @@ from .models import (
     StoreSupplier,
     StoreSupplierPayment,
     StkPushRequest,
+    StudentPocketMoneyEntry,
     allocate_payment_to_charges,
+    apply_barter_to_supplier,
     ensure_store_lookups,
     generate_supplier_payment_reference_code,
     get_or_create_store_supplier,
@@ -61,6 +64,8 @@ from .models import (
     school_account_available_balance,
     store_item_quantity_on_hand,
     student_balance,
+    student_pocket_money_balance,
+    supplier_outstanding_balance,
 )
 from .portal_counts import get_portal_counts
 from .reports import (
@@ -170,9 +175,42 @@ def petty_cashbook_topup_methods(mpesa_enabled):
     return methods
 
 
+def _staff_display_name(user):
+    if not user:
+        return "—"
+    return user.get_full_name() or getattr(user, "staff_code", None) or str(user)
+
+
+def _student_party_map(student_ids):
+    """Map student_id → name, admission, phone for dashboard rows."""
+    ids = {int(sid) for sid in student_ids if sid}
+    if not ids:
+        return {}
+    out = {}
+    try:
+        students = Student.objects.filter(id__in=ids).select_related("parent_guardian")
+    except (DatabaseError, OperationalError):
+        return {sid: {"name": f"Student #{sid}", "admission": "", "phone": ""} for sid in ids}
+    for student in students:
+        phone = ""
+        if student.parent_guardian_id and student.parent_guardian:
+            phone = student.parent_guardian.phone_number or ""
+        out[student.id] = {
+            "name": student.display_name,
+            "admission": student.admission_number or student.assessment_number or "",
+            "phone": phone,
+        }
+    for sid in ids:
+        out.setdefault(sid, {"name": f"Student #{sid}", "admission": "", "phone": ""})
+    return out
+
+
 @portal_access_required
 @require_GET
 def dashboard(request):
+    today = timezone.localdate()
+
+    # All-time open-charge snapshot for module meta / overview cards.
     charge_stats = FeeCharge.objects.exclude(
         status__in=[FeeCharge.Status.CANCELLED, FeeCharge.Status.WAIVED]
     ).aggregate(
@@ -184,8 +222,111 @@ def dashboard(request):
     total_collected = charge_stats["total_collected"] or Decimal("0.00")
     outstanding = total_charged - total_collected
 
-    recent_payments = Payment.objects.select_related("charge", "received_by")[:8]
-    recent_charges = FeeCharge.objects.select_related("category")[:8]
+    today_payments_qs = (
+        Payment.objects.filter(received_at__date=today)
+        .select_related("charge", "received_by")
+        .order_by("-received_at")
+    )
+    today_charges_qs = (
+        FeeCharge.objects.filter(created_at__date=today)
+        .exclude(status__in=[FeeCharge.Status.CANCELLED, FeeCharge.Status.WAIVED])
+        .select_related("category", "created_by")
+        .order_by("-created_at")
+    )
+    today_topups_qs = (
+        AccountTopUp.objects.filter(created_at__date=today)
+        .select_related("account", "created_by")
+        .order_by("-created_at")
+    )
+    today_withdrawals_qs = (
+        AccountWithdraw.objects.filter(created_at__date=today)
+        .select_related("account", "created_by")
+        .order_by("-created_at")
+    )
+
+    today_payment_stats = today_payments_qs.aggregate(
+        total=Sum("amount"),
+        count=Count("id"),
+    )
+    today_charge_stats = today_charges_qs.aggregate(
+        total=Sum("amount"),
+        count=Count("id"),
+    )
+    today_collected = today_payment_stats["total"] or Decimal("0.00")
+    today_charged = today_charge_stats["total"] or Decimal("0.00")
+    today_payment_count = today_payment_stats["count"] or 0
+    today_charge_count = today_charge_stats["count"] or 0
+
+    student_ids = set(today_payments_qs.values_list("student_id", flat=True)) | set(
+        today_charges_qs.values_list("student_id", flat=True)
+    )
+    party_map = _student_party_map(student_ids)
+
+    today_payments = []
+    for payment in today_payments_qs[:40]:
+        party = party_map.get(payment.student_id) or {}
+        today_payments.append(
+            {
+                "when": payment.received_at,
+                "amount": payment.amount,
+                "method": payment.get_method_display(),
+                "reference": payment.reference or "",
+                "title": payment.charge.title if payment.charge_id else "Fee payment",
+                "learner_name": party.get("name") or f"Student #{payment.student_id}",
+                "admission": party.get("admission") or "",
+                "phone": party.get("phone") or "",
+                "staff_name": _staff_display_name(payment.received_by),
+                "student_id": payment.student_id,
+            }
+        )
+
+    today_charges = []
+    for charge in today_charges_qs[:40]:
+        party = party_map.get(charge.student_id) or {}
+        today_charges.append(
+            {
+                "when": charge.created_at,
+                "amount": charge.amount,
+                "title": charge.title,
+                "category": charge.category.name if charge.category_id else "",
+                "status": charge.get_status_display(),
+                "learner_name": party.get("name") or f"Student #{charge.student_id}",
+                "admission": party.get("admission") or "",
+                "phone": party.get("phone") or "",
+                "staff_name": _staff_display_name(charge.created_by),
+                "student_id": charge.student_id,
+            }
+        )
+
+    today_account_activity = []
+    for topup in today_topups_qs[:20]:
+        today_account_activity.append(
+            {
+                "when": topup.created_at,
+                "kind": "Top up",
+                "amount": topup.amount,
+                "account": topup.account.name,
+                "method": topup.get_method_display(),
+                "party_name": _staff_display_name(topup.created_by),
+                "party_detail": topup.reference_code or topup.reference_number or "",
+                "staff_name": _staff_display_name(topup.created_by),
+            }
+        )
+    for withdraw in today_withdrawals_qs[:20]:
+        today_account_activity.append(
+            {
+                "when": withdraw.created_at,
+                "kind": "Withdrawal",
+                "amount": withdraw.amount,
+                "account": withdraw.account.name,
+                "method": withdraw.get_method_display(),
+                "party_name": withdraw.payee or "—",
+                "party_detail": withdraw.reference_number or withdraw.reference_code or "",
+                "staff_name": _staff_display_name(withdraw.created_by),
+            }
+        )
+    today_account_activity.sort(key=lambda row: row["when"], reverse=True)
+
     categories = FeeCategory.objects.filter(is_active=True).order_by("name")
     portal_counts = get_portal_counts()
     learner_count = portal_counts["learner_count"]
@@ -240,12 +381,18 @@ def dashboard(request):
         request,
         "billing/dashboard.html",
         {
+            "today": today,
             "total_charged": total_charged,
             "total_collected": total_collected,
             "outstanding": outstanding,
             "open_count": charge_stats["open_count"] or 0,
-            "recent_payments": recent_payments,
-            "recent_charges": recent_charges,
+            "today_charged": today_charged,
+            "today_collected": today_collected,
+            "today_charge_count": today_charge_count,
+            "today_payment_count": today_payment_count,
+            "today_payments": today_payments,
+            "today_charges": today_charges,
+            "today_account_activity": today_account_activity,
             "categories": categories,
             "learner_count": learner_count,
             "category_count": category_count,
@@ -691,6 +838,199 @@ def student_fees_account_levels(request, account_id):
     )
 
 
+@portal_access_required
+@require_GET
+def student_fees_level_transactions(request, account_id, level_id):
+    """Class ledger: all learners' due/paid balances and parent fee payments."""
+    account = _student_fees_account(account_id)
+    linked_ids = set(account.academic_level_ids or [])
+    if level_id not in linked_ids:
+        messages.error(request, "That academic level is not linked to this account.")
+        return redirect("billing:student_fees_account_levels", account_id=account.id)
+
+    level = get_object_or_404(AcademicLevel, pk=level_id)
+    student_key = _student_level_key_from_curriculum(level)
+    q = (request.GET.get("q") or "").strip()
+
+    ledger_rows = []
+    paid_student_count = 0
+    totals = {
+        "charged": Decimal("0.00"),
+        "paid": Decimal("0.00"),
+        "balance": Decimal("0.00"),
+    }
+
+    if student_key:
+        students_qs = Student.objects.filter(
+            academic_level=student_key,
+            is_suspended=False,
+        ).select_related("parent_guardian")
+        if q:
+            students_qs = students_qs.filter(
+                Q(first_name__icontains=q)
+                | Q(last_name__icontains=q)
+                | Q(admission_number__icontains=q)
+                | Q(assessment_number__icontains=q)
+            )
+        students = list(students_qs.order_by("last_name", "first_name", "id"))
+        student_ids = [s.id for s in students]
+
+        finance_by_student = {
+            row["student_id"]: row
+            for row in FeeCharge.objects.filter(
+                student_id__in=student_ids,
+                fee_structure__account=account,
+            )
+            .exclude(
+                status__in=[FeeCharge.Status.CANCELLED, FeeCharge.Status.WAIVED]
+            )
+            .values("student_id")
+            .annotate(
+                charged=Coalesce(
+                    Sum("amount"),
+                    Value(
+                        Decimal("0.00"),
+                        output_field=DecimalField(max_digits=12, decimal_places=2),
+                    ),
+                ),
+                paid=Coalesce(
+                    Sum("amount_paid"),
+                    Value(
+                        Decimal("0.00"),
+                        output_field=DecimalField(max_digits=12, decimal_places=2),
+                    ),
+                ),
+            )
+        }
+
+        # One ledger line per learner: expected vs paid → balance.
+        running_outstanding = Decimal("0.00")
+        for index, student in enumerate(students, start=1):
+            row = finance_by_student.get(student.id) or {}
+            expected = row.get("charged") or Decimal("0.00")
+            paid = row.get("paid") or Decimal("0.00")
+            balance = expected - paid
+            totals["charged"] += expected
+            totals["paid"] += paid
+            totals["balance"] += balance
+            running_outstanding += balance
+            if paid > 0:
+                paid_student_count += 1
+            ledger_rows.append(
+                {
+                    "row_no": index,
+                    "student": student,
+                    "expected": expected,
+                    "paid": paid,
+                    "balance": balance,
+                    "running_balance": running_outstanding,
+                }
+            )
+
+    is_balanced = totals["charged"] - totals["paid"] == totals["balance"]
+
+    return render(
+        request,
+        "billing/student_fees_level_transactions.html",
+        {
+            "account": account,
+            "level": level,
+            "student_key": student_key,
+            "q": q,
+            "ledger_rows": ledger_rows,
+            "paid_student_count": paid_student_count,
+            "totals": totals,
+            "is_balanced": is_balanced,
+        },
+    )
+
+
+def _account_has_fee_structures_for_level(account: SchoolAccount, level_id: int) -> bool:
+    """True when an active fee structure covers this academic level."""
+    for structure in FeeStructure.objects.filter(
+        account=account,
+        status=FeeStructure.Status.ACTIVE,
+    ).only("academic_level_ids"):
+        ids = structure.academic_level_ids or []
+        if level_id in ids or str(level_id) in {str(x) for x in ids}:
+            return True
+    return False
+
+
+def _student_has_fee_vouchers(account: SchoolAccount, student_id: int) -> bool:
+    """True when the learner has posted fee charges from this account."""
+    return (
+        FeeCharge.objects.filter(
+            student_id=student_id,
+            fee_structure__account=account,
+        )
+        .exclude(
+            status__in=[FeeCharge.Status.CANCELLED, FeeCharge.Status.WAIVED]
+        )
+        .exists()
+    )
+
+
+def _fee_setup_urls(account_id: int) -> dict:
+    """Deep links into the fee structure page for setup vs voucher posting."""
+    base = reverse(
+        "billing:student_fees_fee_structure",
+        kwargs={"account_id": account_id},
+    )
+    return {
+        "fee_structure_page_url": base,
+        "fee_structure_create_url": f"{base}?setup=structure",
+        "fee_vouchers_create_url": f"{base}?setup=vouchers",
+    }
+
+
+def _fee_vouchers_required_message(
+    account: SchoolAccount,
+    *,
+    level_id: int | None = None,
+    for_student: bool = False,
+):
+    """Flash/HTML notice with the correct next step (structure vs vouchers)."""
+    urls = _fee_setup_urls(account.id)
+    has_structures = (
+        _account_has_fee_structures_for_level(account, level_id)
+        if level_id is not None
+        else FeeStructure.objects.filter(
+            account=account, status=FeeStructure.Status.ACTIVE
+        ).exists()
+    )
+    if has_structures:
+        lead = (
+            "This learner has no fee vouchers yet. "
+            "Apply a fee structure to post vouchers before updating fees."
+            if for_student
+            else (
+                "Fee vouchers have not been posted for this level yet. "
+                "Apply a fee structure to create learner vouchers."
+            )
+        )
+        link_label = "Create fee vouchers"
+        target_url = urls["fee_vouchers_create_url"]
+    else:
+        lead = (
+            "No fee structure covers this level yet. "
+            "Register a fee structure before updating learner fees."
+            if for_student
+            else (
+                "No fee structure has been registered for this level yet. "
+                "Create one before updating learner fees."
+            )
+        )
+        link_label = "Create fee structure"
+        target_url = urls["fee_structure_create_url"]
+    return format_html(
+        '{} <a href="{}" class="font-semibold text-brand underline">{}</a>',
+        lead,
+        target_url,
+        link_label,
+    )
+
+
 def _fee_payment_method_options(account: SchoolAccount, mpesa_enabled: bool, stk_ready: bool = False):
     """Payment options for student fee collection based on account modes + Daraja."""
     modes = set(account.payment_modes or [])
@@ -752,6 +1092,15 @@ def _fee_payment_method_options(account: SchoolAccount, mpesa_enabled: bool, stk
                 "payment_method": Payment.Method.OTHER,
             }
         )
+    # Always offer barter: settle student fees against supplier debt the school owes.
+    options.append(
+        {
+            "value": "BARTER",
+            "label": "Barter trade",
+            "input": "supplier",
+            "payment_method": Payment.Method.BARTER,
+        }
+    )
     return options
 
 
@@ -812,6 +1161,22 @@ def student_fees_level_students(request, account_id, level_id):
                     error = "Learner not found or is suspended."
                 elif student_key and student.academic_level != student_key:
                     error = "That learner is not in this academic level."
+                elif not _student_has_fee_vouchers(account, student.id):
+                    messages.error(
+                        request,
+                        _fee_vouchers_required_message(
+                            account,
+                            level_id=level.id,
+                            for_student=True,
+                        ),
+                    )
+                    redirect_url = reverse(
+                        "billing:student_fees_level_students",
+                        kwargs={"account_id": account.id, "level_id": level.id},
+                    )
+                    if q:
+                        redirect_url = f"{redirect_url}?q={q}"
+                    return redirect(redirect_url)
 
             if error is None:
                 try:
@@ -830,12 +1195,55 @@ def student_fees_level_students(request, account_id, level_id):
                     "The payment is recorded only after Safaricom confirms success."
                 )
 
+            supplier = None
             if error is None and option["input"] == "phone":
                 phone = _normalize_msisdn(phone_raw)
                 if len(phone) < 12:
                     error = "Enter a valid M-Pesa phone number (e.g. 07… or 2547…)."
                 elif not reference:
                     reference = f"STK-{phone[-9:]}"
+            elif error is None and option["input"] == "supplier":
+                supplier_id_raw = (request.POST.get("supplier_id") or "").strip()
+                supplier_name = upper_input(request.POST.get("supplier_name"))
+                supplier_phone = normalize_supplier_phone(
+                    request.POST.get("supplier_phone")
+                )
+                if supplier_id_raw.isdigit():
+                    supplier = StoreSupplier.objects.filter(
+                        pk=int(supplier_id_raw), is_active=True
+                    ).first()
+                if supplier is None and supplier_phone:
+                    supplier = StoreSupplier.objects.filter(
+                        phone_number=supplier_phone, is_active=True
+                    ).first()
+                if supplier is None and supplier_name:
+                    supplier = (
+                        StoreSupplier.objects.filter(
+                            name__iexact=supplier_name, is_active=True
+                        )
+                        .order_by("id")
+                        .first()
+                    )
+                if supplier is None:
+                    error = (
+                        "Select a registered supplier by name or phone. "
+                        "Only suppliers already in the system can be used for barter trade."
+                    )
+                else:
+                    owed = supplier_outstanding_balance(supplier.id)
+                    if owed <= 0:
+                        error = (
+                            f"The school does not currently owe {supplier.name} "
+                            "any tradable balance."
+                        )
+                    elif amount > owed:
+                        error = (
+                            f"Barter amount exceeds what the school owes {supplier.name} "
+                            f"(KES {owed:,.2f} available to trade)."
+                        )
+                    else:
+                        if not reference:
+                            reference = f"BARTER-{supplier.id}-{timezone.now().strftime('%Y%m%d%H%M')}"
             elif error is None and option["input"] == "reference":
                 if not reference:
                     error = "Reference code is required for this payment method."
@@ -856,20 +1264,61 @@ def student_fees_level_students(request, account_id, level_id):
                 note_parts = [notes] if notes else []
                 if option["value"] == "MPESA_MANUAL":
                     note_parts.insert(0, "Manual M-Pesa")
-                result = allocate_payment_to_charges(
-                    student_id=student.id,
-                    amount=amount,
-                    method=option["payment_method"],
-                    reference=reference,
-                    received_by=request.user,
-                    notes=" · ".join(part for part in note_parts if part),
-                )
-                messages.success(
-                    request,
-                    f"Payment of KES {amount} recorded for {student.display_name} "
-                    f"via {option['label']} (ref {reference}). "
-                    f"KES {result['allocated']} applied to charges.",
-                )
+                if option["value"] == "BARTER" and supplier is not None:
+                    note_parts.insert(
+                        0,
+                        f"Barter trade · {supplier.name} ({supplier.phone_number})",
+                    )
+                    try:
+                        with transaction.atomic():
+                            settled = apply_barter_to_supplier(
+                                supplier=supplier,
+                                amount=amount,
+                                account=account,
+                                user=request.user,
+                                reference=reference,
+                                notes=" · ".join(part for part in note_parts if part),
+                            )
+                            result = allocate_payment_to_charges(
+                                student_id=student.id,
+                                amount=amount,
+                                method=option["payment_method"],
+                                reference=reference,
+                                received_by=request.user,
+                                notes=" · ".join(part for part in note_parts if part),
+                            )
+                    except ValueError as exc:
+                        messages.error(request, str(exc))
+                        redirect_url = reverse(
+                            "billing:student_fees_level_students",
+                            kwargs={"account_id": account.id, "level_id": level.id},
+                        )
+                        if q:
+                            redirect_url = f"{redirect_url}?q={q}"
+                        return redirect(redirect_url)
+                    messages.success(
+                        request,
+                        f"Barter of KES {amount} recorded for {student.display_name} "
+                        f"against supplier {supplier.name}. "
+                        f"KES {result['allocated']} applied to fees; "
+                        f"KES {settled} settled on supplier account "
+                        f"(remaining owe KES {supplier_outstanding_balance(supplier.id):,.2f}).",
+                    )
+                else:
+                    result = allocate_payment_to_charges(
+                        student_id=student.id,
+                        amount=amount,
+                        method=option["payment_method"],
+                        reference=reference,
+                        received_by=request.user,
+                        notes=" · ".join(part for part in note_parts if part),
+                    )
+                    messages.success(
+                        request,
+                        f"Payment of KES {amount} recorded for {student.display_name} "
+                        f"via {option['label']} (ref {reference}). "
+                        f"KES {result['allocated']} applied to charges.",
+                    )
                 redirect_url = reverse(
                     "billing:student_fees_level_students",
                     kwargs={"account_id": account.id, "level_id": level.id},
@@ -958,6 +1407,16 @@ def student_fees_level_students(request, account_id, level_id):
                 ),
             )
         }
+        voucher_student_ids = set(
+            FeeCharge.objects.filter(
+                student_id__in=student_ids,
+                fee_structure__account=account,
+            )
+            .exclude(
+                status__in=[FeeCharge.Status.CANCELLED, FeeCharge.Status.WAIVED]
+            )
+            .values_list("student_id", flat=True)
+        )
         for student in students:
             row = finance_by_student.get(student.id) or {}
             charged = row.get("charged") or Decimal("0.00")
@@ -969,13 +1428,19 @@ def student_fees_level_students(request, account_id, level_id):
             parent_phone = ""
             if student.parent_guardian_id and student.parent_guardian:
                 parent_phone = student.parent_guardian.phone_number or ""
+            has_charges = student.id in voucher_student_ids
+            student.has_fee_vouchers = has_charges
             students_payload[str(student.id)] = {
                 "id": student.id,
                 "name": student.display_name,
                 "admission": student.admission_number or student.assessment_number or "",
                 "balance": f"{balance:.2f}",
                 "phone": parent_phone,
+                "has_fee_vouchers": has_charges,
             }
+
+    fee_setup_urls = _fee_setup_urls(account.id)
+    has_fee_structures = _account_has_fee_structures_for_level(account, level.id)
 
     return render(
         request,
@@ -1000,10 +1465,13 @@ def student_fees_level_students(request, account_id, level_id):
             "mpesa_enabled": mpesa_enabled,
             "mpesa_stk_ready": mpesa_stk_ready,
             "stk_missing_fields": stk_missing,
+            "has_fee_structures": has_fee_structures,
+            **fee_setup_urls,
             "stk_initiate_url": reverse(
                 "billing:student_fees_stk_initiate",
                 kwargs={"account_id": account.id, "level_id": level.id},
             ),
+            "supplier_suggest_url": reverse("billing:store_supplier_suggest"),
             "stk_status_url_template": reverse(
                 "billing:student_fees_stk_status",
                 kwargs={
@@ -1060,6 +1528,30 @@ def student_fees_stk_initiate(request, account_id, level_id):
     if student_key and student.academic_level != student_key:
         return JsonResponse(
             {"ok": False, "error": "Learner is not in this academic level."},
+            status=400,
+        )
+    if not _student_has_fee_vouchers(account, student.id):
+        setup_urls = _fee_setup_urls(account.id)
+        has_structures = _account_has_fee_structures_for_level(account, level.id)
+        if has_structures:
+            error = (
+                "This learner has no fee vouchers yet. "
+                "Apply a fee structure to post vouchers before collecting fees."
+            )
+            next_url = setup_urls["fee_vouchers_create_url"]
+        else:
+            error = (
+                "No fee structure covers this level yet. "
+                "Register a fee structure before collecting fees."
+            )
+            next_url = setup_urls["fee_structure_create_url"]
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": error,
+                "fee_structure_url": next_url,
+                "fee_vouchers_url": setup_urls["fee_vouchers_create_url"],
+            },
             status=400,
         )
 
@@ -1414,6 +1906,19 @@ def student_fees_fee_structure(request, account_id):
         for year in years
     }
 
+    setup_mode = (request.GET.get("setup") or "").strip().lower()
+    auto_open_structure = setup_mode == "structure" and request.method == "GET"
+    highlight_fee_vouchers = setup_mode == "vouchers" and request.method == "GET"
+    # Do not open the structure modal until approved votes exist.
+    if auto_open_structure and votes and not open_structure_modal:
+        open_structure_modal = True
+    elif auto_open_structure and not votes:
+        auto_open_structure = False
+        messages.info(
+            request,
+            "Register fee votes first, then return here to create a fee structure.",
+        )
+
     return render(
         request,
         "billing/student_fees_fee_structure.html",
@@ -1433,6 +1938,12 @@ def student_fees_fee_structure(request, account_id):
             "editing_structure_id": editing_structure_id,
             "current_year": current_year,
             "current_term": current_term,
+            "highlight_fee_vouchers": highlight_fee_vouchers,
+            "auto_open_structure": auto_open_structure,
+            "fee_votes_url": reverse(
+                "billing:account_votes_settings",
+                kwargs={"account_id": account.id},
+            ),
         },
     )
 
@@ -2320,7 +2831,28 @@ def reports(request):
         else:
             selected_term = selected_year.terms.order_by("start_date").first()
 
-    category_map = {item["key"]: item for item in REPORT_CATEGORIES}
+    pocket_money_active = SchoolAccount.objects.filter(
+        category=SchoolAccount.Category.POCKET_MONEY,
+        is_active=True,
+    ).exists()
+
+    def _report_is_available(report):
+        if report.get("requires_active_pocket_money") and not pocket_money_active:
+            return False
+        return True
+
+    report_categories = []
+    for category in REPORT_CATEGORIES:
+        if category.get("requires_active_pocket_money") and not pocket_money_active:
+            continue
+        visible_reports = [
+            report for report in category["reports"] if _report_is_available(report)
+        ]
+        if not visible_reports:
+            continue
+        report_categories.append({**category, "reports": visible_reports})
+
+    category_map = {item["key"]: item for item in report_categories}
     if category_key in category_map:
         selected_category = category_map[category_key]
 
@@ -2359,9 +2891,27 @@ def reports(request):
             error = "Select the type of report to generate."
         elif report_type not in REPORT_TYPE_MAP:
             error = "Choose a valid report type."
+        elif (
+            REPORT_TYPE_MAP[report_type].get("requires_active_pocket_money")
+            and not pocket_money_active
+        ):
+            error = (
+                "Pocket money reports are available only when an active "
+                "pocket money school account exists."
+            )
         else:
             selected_report = REPORT_TYPE_MAP[report_type]
             selected_category = category_map.get(selected_report["category_key"])
+            # Keep selected category even if filtered map dropped it (edge case).
+            if selected_category is None:
+                selected_category = next(
+                    (
+                        {**category, "reports": category["reports"]}
+                        for category in REPORT_CATEGORIES
+                        if category["key"] == selected_report["category_key"]
+                    ),
+                    None,
+                )
             category_key = selected_report["category_key"]
             error = resolve_period()
             if error is None:
@@ -2370,7 +2920,12 @@ def reports(request):
                     error = period_error
             if error is None:
                 report_lock_key = f"{_REPORT_LOCK_PREFIX}{request.user.pk}"
-                if not cache.add(report_lock_key, "1", _REPORT_LOCK_TTL):
+                lock_acquired = cache.add(report_lock_key, "1", _REPORT_LOCK_TTL)
+                if not lock_acquired:
+                    # Stale lock from a crashed generate — clear and retry once.
+                    cache.delete(report_lock_key)
+                    lock_acquired = cache.add(report_lock_key, "1", _REPORT_LOCK_TTL)
+                if not lock_acquired:
                     error = (
                         "You already have a report generating. "
                         "Wait for it to finish, then try again."
@@ -2451,10 +3006,11 @@ def reports(request):
         request,
         "billing/reports.html",
         {
-            "report_categories": REPORT_CATEGORIES,
+            "report_categories": report_categories,
             "selected_category": selected_category,
             "category_key": category_key,
             "available_reports": available_reports,
+            "pocket_money_active": pocket_money_active,
             "selected_report": selected_report,
             "report_type": report_type,
             "period_mode": period_mode,
@@ -2489,16 +3045,21 @@ def store_supplier_suggest(request):
     lookup = Q(name__icontains=q) | Q(phone_number__icontains=q)
     if phone_q and phone_q != q:
         lookup |= Q(phone_number__icontains=phone_q)
-    results = [
-        {
-            "id": supplier.id,
-            "name": supplier.name,
-            "phone_number": supplier.phone_number,
-        }
-        for supplier in StoreSupplier.objects.filter(is_active=True)
+    results = []
+    for supplier in (
+        StoreSupplier.objects.filter(is_active=True)
         .filter(lookup)
         .order_by("name")[:8]
-    ]
+    ):
+        owed = supplier_outstanding_balance(supplier.id)
+        results.append(
+            {
+                "id": supplier.id,
+                "name": supplier.name,
+                "phone_number": supplier.phone_number,
+                "outstanding": f"{owed:.2f}",
+            }
+        )
     return JsonResponse({"results": results})
 
 
@@ -3015,6 +3576,7 @@ def school_account_detail(request, account_id):
     mpesa_enabled = bool(daraja.is_enabled)
     open_account_modal = False
     open_topup_modal = False
+    open_withdraw_modal = False
     open_vote_modal = False
     editing_vote_id = None
     form_data = {
@@ -3034,6 +3596,13 @@ def school_account_detail(request, account_id):
         "description": "",
         "reference_number": "",
     }
+    withdraw_form = {
+        "amount": "",
+        "method": "",
+        "payee": "",
+        "description": "",
+        "reference_number": "",
+    }
     vote_form = {
         "name": "",
         "code": "",
@@ -3045,11 +3614,16 @@ def school_account_detail(request, account_id):
     }
 
     def current_account_balance():
+        """Gross approved top-ups (used for vote allocation math)."""
         agg = AccountTopUp.objects.filter(
             account=account,
             status=AccountTopUp.Status.APPROVED,
         ).aggregate(total=Sum("amount"))
         return agg["total"] or Decimal("0.00")
+
+    def current_available_balance():
+        """Top-ups minus withdrawals — spendable when votes are disabled."""
+        return school_account_available_balance(account)
 
     def current_votes_allocated():
         agg = AccountVote.objects.filter(
@@ -3128,6 +3702,54 @@ def school_account_detail(request, account_id):
             error = "Reference number is required."
         if error is None and len(description) > 255:
             error = "Description must be 255 characters or fewer."
+        return data, amount, error
+
+    def parse_withdraw_form():
+        amount_raw = (request.POST.get("amount") or "").strip()
+        method = upper_input(request.POST.get("method"))
+        payee = upper_input(request.POST.get("payee"))
+        description = (request.POST.get("description") or "").strip()
+        reference_number = upper_input(request.POST.get("reference_number"))
+        data = {
+            "amount": amount_raw,
+            "method": method,
+            "payee": payee,
+            "description": description,
+            "reference_number": reference_number,
+        }
+        valid_methods = {choice for choice, _ in AccountWithdraw.Method.choices}
+        error = None
+        amount = None
+        available = current_available_balance()
+        if account.votes_enabled:
+            error = (
+                "Withdrawals without votes are only allowed when vote allocation is disabled "
+                "on this account."
+            )
+        elif not account.is_active:
+            error = "This account is suspended and cannot be withdrawn from."
+        if error is None:
+            try:
+                amount = Decimal(amount_raw)
+                if amount <= 0:
+                    raise ValueError
+            except Exception:
+                error = "Enter a valid withdrawal amount greater than zero."
+        if error is None and method not in valid_methods:
+            error = "Select a valid withdrawal method."
+        if error is None and not payee:
+            error = "Payee name is required."
+        if error is None and len(payee) > 160:
+            error = "Payee name must be 160 characters or fewer."
+        if error is None and not reference_number:
+            error = "Reference / voucher number is required."
+        if error is None and len(description) > 255:
+            error = "Description must be 255 characters or fewer."
+        if error is None and amount > available:
+            error = (
+                f"Withdrawal KES {amount} exceeds available balance "
+                f"KES {available.quantize(Decimal('0.01'))}."
+            )
         return data, amount, error
 
     def parse_vote_form(editing_vote=None):
@@ -3250,6 +3872,30 @@ def school_account_detail(request, account_id):
                     )
                 return redirect("billing:school_account_detail", account_id=account.id)
 
+        elif action == "withdraw":
+            withdraw_form, amount, error = parse_withdraw_form()
+            if error:
+                messages.error(request, error)
+                open_withdraw_modal = True
+            else:
+                withdrawal = AccountWithdraw(
+                    account=account,
+                    amount=amount,
+                    method=withdraw_form["method"],
+                    payee=withdraw_form["payee"],
+                    description=withdraw_form["description"],
+                    reference_number=withdraw_form["reference_number"],
+                    status=AccountWithdraw.Status.APPROVED,
+                    created_by=request.user,
+                )
+                withdrawal.save()
+                messages.success(
+                    request,
+                    f"Withdrew KES {withdrawal.amount} from “{account.name}”. "
+                    f"Reference code: {withdrawal.reference_code}.",
+                )
+                return redirect("billing:school_account_detail", account_id=account.id)
+
         elif action in {"suspend_vote", "unsuspend_vote", "delete_vote"}:
             vote = get_object_or_404(AccountVote, pk=vote_id, account=account)
             if action == "delete_vote":
@@ -3278,6 +3924,13 @@ def school_account_detail(request, account_id):
             return redirect("billing:school_account_detail", account_id=account.id)
 
         elif action == "register_vote":
+            if not account.votes_enabled:
+                messages.error(
+                    request,
+                    "Votes are disabled on this account. Money can enter and leave without vote distribution. "
+                    "Edit the account and enable vote allocation to register votes.",
+                )
+                return redirect("billing:school_account_detail", account_id=account.id)
             vote_form, amount, percentage, allocation_order, error = parse_vote_form()
             if error:
                 messages.error(request, error)
@@ -3312,6 +3965,12 @@ def school_account_detail(request, account_id):
                 return redirect("billing:school_account_detail", account_id=account.id)
 
         elif action == "edit_vote":
+            if not account.votes_enabled:
+                messages.error(
+                    request,
+                    "Votes are disabled on this account. Enable vote allocation to edit votes.",
+                )
+                return redirect("billing:school_account_detail", account_id=account.id)
             vote = get_object_or_404(AccountVote, pk=vote_id, account=account)
             vote_form, amount, percentage, allocation_order, error = parse_vote_form(
                 editing_vote=vote
@@ -3391,7 +4050,33 @@ def school_account_detail(request, account_id):
         for level_id in (account.academic_level_ids or [])
         if level_id in level_map
     ]
+    pocket_level_rows = []
+    if account.category == SchoolAccount.Category.POCKET_MONEY:
+        level_ids = list(account.academic_level_ids or [])
+        order_index = {level_id: index for index, level_id in enumerate(level_ids)}
+        pocket_levels = list(
+            AcademicLevel.objects.filter(id__in=level_ids).order_by("order", "name")
+        )
+        pocket_levels.sort(
+            key=lambda level: (order_index.get(level.id, 9999), level.order, level.name)
+        )
+        for level in pocket_levels:
+            student_key = _student_level_key_from_curriculum(level)
+            student_count = 0
+            if student_key:
+                student_count = Student.objects.filter(
+                    academic_level=student_key,
+                    is_suspended=False,
+                ).count()
+            pocket_level_rows.append(
+                {
+                    "level": level,
+                    "student_key": student_key,
+                    "student_count": student_count,
+                }
+            )
     topups = AccountTopUp.objects.filter(account=account).order_by("-created_at")
+    withdrawals = AccountWithdraw.objects.filter(account=account).order_by("-created_at")
     votes_qs = AccountVote.objects.filter(account=account).order_by(
         "allocation_order", "created_at"
     )
@@ -3401,35 +4086,46 @@ def school_account_detail(request, account_id):
         if mpesa_enabled or choice[0] != AccountTopUp.Method.STK_PUSH
     ]
     active_accounts = SchoolAccount.objects.filter(is_active=True).order_by("category", "name")
-    balance = account.balance or Decimal("0.00")
+    topped_up = account.balance or Decimal("0.00")
+    withdrawn = (
+        AccountWithdraw.objects.filter(
+            account=account,
+            status=AccountWithdraw.Status.APPROVED,
+        ).aggregate(total=Sum("amount"))["total"]
+        or Decimal("0.00")
+    )
+    available_balance = topped_up - withdrawn
+    # When votes are on, allocation math uses gross top-ups; when off, spendable cash.
+    balance = available_balance if not account.votes_enabled else topped_up
     votes_allocated = account.votes_allocated or Decimal("0.00")
 
     vote_rows = []
     votes_allocated_now = Decimal("0.00")
-    for vote in votes_qs:
-        if vote.status == AccountVote.Status.APPROVED:
-            if (
-                vote.allocation_mode == AccountVote.AllocationMode.PERCENTAGE
-                and vote.percentage is not None
-            ):
-                allocated = (balance * vote.percentage / Decimal("100")).quantize(
-                    Decimal("0.01")
-                )
+    if account.votes_enabled:
+        for vote in votes_qs:
+            if vote.status == AccountVote.Status.APPROVED:
+                if (
+                    vote.allocation_mode == AccountVote.AllocationMode.PERCENTAGE
+                    and vote.percentage is not None
+                ):
+                    allocated = (topped_up * vote.percentage / Decimal("100")).quantize(
+                        Decimal("0.01")
+                    )
+                else:
+                    allocated = vote.amount or Decimal("0.00")
+                # Funded balance is 0 until the account has approved top-ups.
+                vote_balance = allocated if topped_up > 0 else Decimal("0.00")
+                votes_allocated_now += vote_balance
             else:
                 allocated = vote.amount or Decimal("0.00")
-            # Funded balance is 0 until the account has approved top-ups.
-            vote_balance = allocated if balance > 0 else Decimal("0.00")
-            votes_allocated_now += vote_balance
-        else:
-            allocated = vote.amount or Decimal("0.00")
-            vote_balance = Decimal("0.00")
-        vote_rows.append(
-            {
-                "vote": vote,
-                "allocated": allocated,
-                "balance": vote_balance,
-            }
-        )
+                vote_balance = Decimal("0.00")
+            vote_rows.append(
+                {
+                    "vote": vote,
+                    "allocated": allocated,
+                    "balance": vote_balance,
+                }
+            )
 
     remaining_percentage = remaining_vote_percentage(
         exclude_vote=AccountVote.objects.filter(pk=editing_vote_id).first()
@@ -3449,11 +4145,21 @@ def school_account_detail(request, account_id):
         {
             "account": account,
             "balance": balance,
-            "votes_allocated": votes_allocated_now,
-            "unallocated": balance - votes_allocated_now,
+            "topped_up": topped_up,
+            "withdrawn": withdrawn,
+            "available_balance": available_balance,
+            "votes_allocated": votes_allocated_now if account.votes_enabled else Decimal("0.00"),
+            "unallocated": (
+                (topped_up - votes_allocated_now)
+                if account.votes_enabled
+                else available_balance
+            ),
             "pending_topups": account.pending_topups or 0,
             "linked_levels": linked_levels,
+            "pocket_level_rows": pocket_level_rows,
+            "is_pocket_money": account.category == SchoolAccount.Category.POCKET_MONEY,
             "topups": topups,
+            "withdrawals": withdrawals,
             "votes": votes_qs,
             "vote_rows": vote_rows,
             "account_categories": SchoolAccount.Category.choices,
@@ -3462,16 +4168,367 @@ def school_account_detail(request, account_id):
             "academic_levels": academic_levels,
             "open_account_modal": open_account_modal,
             "open_topup_modal": open_topup_modal,
+            "open_withdraw_modal": open_withdraw_modal,
             "open_vote_modal": open_vote_modal,
             "editing_vote_id": editing_vote_id,
             "form_data": form_data,
             "topup_form": topup_form,
+            "withdraw_form": withdraw_form,
             "vote_form": vote_form,
             "next_vote_order": next_vote_order,
             "remaining_percentage": remaining_percentage,
             "topup_methods": topup_methods,
+            "withdraw_methods": AccountWithdraw.Method.choices,
             "mpesa_enabled": mpesa_enabled,
             "active_accounts": active_accounts,
+        },
+    )
+
+
+def _pocket_money_account(account_id: int) -> SchoolAccount:
+    return get_object_or_404(
+        SchoolAccount,
+        pk=account_id,
+        category=SchoolAccount.Category.POCKET_MONEY,
+    )
+
+
+def _pocket_money_level_on_account(account: SchoolAccount, level_id: int) -> AcademicLevel:
+    level = get_object_or_404(AcademicLevel, pk=level_id)
+    linked_ids = {int(x) for x in (account.academic_level_ids or [])}
+    if level.id not in linked_ids:
+        raise Http404("This class is not linked to this pocket money account.")
+    return level
+
+
+@portal_access_required
+@require_http_methods(["GET", "POST"])
+def pocket_money_level_students(request, account_id, level_id):
+    account = _pocket_money_account(account_id)
+    level = _pocket_money_level_on_account(account, level_id)
+    student_key = _student_level_key_from_curriculum(level)
+    mpesa_enabled = bool(getattr(DarajaSettings.load(), "is_enabled", False))
+    open_topup_modal = False
+    open_withdraw_modal = False
+    topup_form = {
+        "student_id": "",
+        "amount": "",
+        "method": "",
+        "description": "",
+        "reference_number": "",
+    }
+    withdraw_form = {
+        "student_id": "",
+        "amount": "",
+        "method": "",
+        "description": "",
+        "reference_number": "",
+    }
+
+    def upper_input(value):
+        return (value or "").strip().upper()
+
+    def parse_student_entry(direction):
+        student_id_raw = (request.POST.get("student_id") or "").strip()
+        amount_raw = (request.POST.get("amount") or "").strip()
+        method = upper_input(request.POST.get("method"))
+        description = (request.POST.get("description") or "").strip()
+        reference_number = upper_input(request.POST.get("reference_number"))
+        data = {
+            "student_id": student_id_raw,
+            "amount": amount_raw,
+            "method": method,
+            "description": description,
+            "reference_number": reference_number,
+        }
+        valid_methods = {choice for choice, _ in StudentPocketMoneyEntry.Method.choices}
+        if not mpesa_enabled:
+            valid_methods.discard(StudentPocketMoneyEntry.Method.STK_PUSH)
+        error = None
+        amount = None
+        student = None
+        if not account.is_active:
+            error = "This pocket money account is suspended."
+        try:
+            student_id = int(student_id_raw)
+        except Exception:
+            student_id = None
+            error = error or "Select a learner."
+        if error is None:
+            student = Student.objects.filter(pk=student_id, is_suspended=False).first()
+            if student is None:
+                error = "Learner not found."
+            elif student_key and student.academic_level != student_key:
+                error = "Learner is not in this class."
+        if error is None:
+            try:
+                amount = Decimal(amount_raw)
+                if amount <= 0:
+                    raise ValueError
+            except Exception:
+                error = "Enter a valid amount greater than zero."
+        if error is None and method not in valid_methods:
+            error = "Select a valid method."
+        if error is None and not reference_number:
+            error = "Reference number is required."
+        if error is None and len(description) > 255:
+            error = "Description must be 255 characters or fewer."
+        if (
+            error is None
+            and direction == StudentPocketMoneyEntry.Direction.DEBIT
+            and student is not None
+            and amount is not None
+        ):
+            available = student_pocket_money_balance(account, student.id)
+            if amount > available:
+                error = (
+                    f"Withdrawal KES {amount} exceeds {student.display_name}'s "
+                    f"pocket money balance KES {available.quantize(Decimal('0.01'))}."
+                )
+        return data, student, amount, error
+
+    if request.method == "POST":
+        action = (request.POST.get("action") or "").strip()
+        if action == "student_topup":
+            topup_form, student, amount, error = parse_student_entry(
+                StudentPocketMoneyEntry.Direction.CREDIT
+            )
+            if error:
+                messages.error(request, error)
+                open_topup_modal = True
+            else:
+                topup_method_map = {
+                    StudentPocketMoneyEntry.Method.STK_PUSH: AccountTopUp.Method.STK_PUSH,
+                    StudentPocketMoneyEntry.Method.MANUAL_MPESA: AccountTopUp.Method.MANUAL_MPESA,
+                    StudentPocketMoneyEntry.Method.CASH: AccountTopUp.Method.CASH,
+                    StudentPocketMoneyEntry.Method.CHEQUE: AccountTopUp.Method.CHEQUE,
+                }
+                with transaction.atomic():
+                    AccountTopUp.objects.create(
+                        account=account,
+                        amount=amount,
+                        method=topup_method_map.get(
+                            topup_form["method"], AccountTopUp.Method.CASH
+                        ),
+                        description=(
+                            topup_form["description"]
+                            or f"Pocket money top-up for {student.display_name}"
+                        )[:255],
+                        reference_number=topup_form["reference_number"],
+                        status=AccountTopUp.Status.APPROVED,
+                        created_by=request.user,
+                    )
+                    entry = StudentPocketMoneyEntry(
+                        account=account,
+                        student_id=student.id,
+                        direction=StudentPocketMoneyEntry.Direction.CREDIT,
+                        amount=amount,
+                        method=topup_form["method"],
+                        description=topup_form["description"],
+                        reference_number=topup_form["reference_number"],
+                        status=StudentPocketMoneyEntry.Status.APPROVED,
+                        created_by=request.user,
+                    )
+                    entry.save()
+                messages.success(
+                    request,
+                    f"Topped up KES {amount} for {student.display_name}. "
+                    f"Reference: {entry.reference_code}.",
+                )
+                return redirect(
+                    "billing:pocket_money_level_students",
+                    account_id=account.id,
+                    level_id=level.id,
+                )
+        elif action == "student_withdraw":
+            withdraw_form, student, amount, error = parse_student_entry(
+                StudentPocketMoneyEntry.Direction.DEBIT
+            )
+            if error:
+                messages.error(request, error)
+                open_withdraw_modal = True
+            else:
+                withdraw_method_map = {
+                    StudentPocketMoneyEntry.Method.CASH: AccountWithdraw.Method.CASH,
+                    StudentPocketMoneyEntry.Method.MANUAL_MPESA: AccountWithdraw.Method.MPESA,
+                    StudentPocketMoneyEntry.Method.STK_PUSH: AccountWithdraw.Method.MPESA,
+                    StudentPocketMoneyEntry.Method.BANK: AccountWithdraw.Method.BANK,
+                    StudentPocketMoneyEntry.Method.CHEQUE: AccountWithdraw.Method.CHEQUE,
+                    StudentPocketMoneyEntry.Method.OTHER: AccountWithdraw.Method.OTHER,
+                }
+                with transaction.atomic():
+                    AccountWithdraw.objects.create(
+                        account=account,
+                        amount=amount,
+                        method=withdraw_method_map.get(
+                            withdraw_form["method"], AccountWithdraw.Method.CASH
+                        ),
+                        payee=student.display_name[:160],
+                        description=(
+                            withdraw_form["description"]
+                            or f"Pocket money withdrawal for {student.display_name}"
+                        )[:255],
+                        reference_number=withdraw_form["reference_number"],
+                        status=AccountWithdraw.Status.APPROVED,
+                        created_by=request.user,
+                    )
+                    entry = StudentPocketMoneyEntry(
+                        account=account,
+                        student_id=student.id,
+                        direction=StudentPocketMoneyEntry.Direction.DEBIT,
+                        amount=amount,
+                        method=withdraw_form["method"],
+                        description=withdraw_form["description"],
+                        reference_number=withdraw_form["reference_number"],
+                        status=StudentPocketMoneyEntry.Status.APPROVED,
+                        created_by=request.user,
+                    )
+                    entry.save()
+                messages.success(
+                    request,
+                    f"Withdrew KES {amount} for {student.display_name}. "
+                    f"Reference: {entry.reference_code}.",
+                )
+                return redirect(
+                    "billing:pocket_money_level_students",
+                    account_id=account.id,
+                    level_id=level.id,
+                )
+
+    q = (request.GET.get("q") or "").strip()
+    students_qs = Student.objects.none()
+    if student_key:
+        students_qs = Student.objects.filter(
+            academic_level=student_key,
+            is_suspended=False,
+        ).select_related("parent_guardian")
+        if q:
+            students_qs = students_qs.filter(
+                Q(first_name__icontains=q)
+                | Q(last_name__icontains=q)
+                | Q(admission_number__icontains=q)
+                | Q(assessment_number__icontains=q)
+            )
+        students_qs = students_qs.order_by("last_name", "first_name")
+
+    students = list(students_qs[:200])
+    for student in students:
+        student.pocket_balance = student_pocket_money_balance(account, student.id)
+
+    total_held = sum((s.pocket_balance for s in students), Decimal("0.00"))
+    topup_methods = [
+        choice
+        for choice in StudentPocketMoneyEntry.Method.choices
+        if mpesa_enabled or choice[0] != StudentPocketMoneyEntry.Method.STK_PUSH
+    ]
+    withdraw_methods = [
+        choice
+        for choice in StudentPocketMoneyEntry.Method.choices
+        if choice[0] != StudentPocketMoneyEntry.Method.STK_PUSH
+    ]
+
+    return render(
+        request,
+        "billing/pocket_money_level_students.html",
+        {
+            "account": account,
+            "level": level,
+            "student_key": student_key,
+            "students": students,
+            "q": q,
+            "total_held": total_held,
+            "topup_form": topup_form,
+            "withdraw_form": withdraw_form,
+            "open_topup_modal": open_topup_modal,
+            "open_withdraw_modal": open_withdraw_modal,
+            "topup_methods": topup_methods,
+            "withdraw_methods": withdraw_methods,
+            "mpesa_enabled": mpesa_enabled,
+        },
+    )
+
+
+@portal_access_required
+@require_GET
+def pocket_money_student_transactions(request, account_id, level_id, student_id):
+    account = _pocket_money_account(account_id)
+    level = _pocket_money_level_on_account(account, level_id)
+    student_key = _student_level_key_from_curriculum(level)
+    student = get_object_or_404(
+        Student.objects.select_related("parent_guardian"),
+        pk=student_id,
+    )
+    if student_key and student.academic_level != student_key:
+        raise Http404("Learner is not in this class.")
+    entries = list(
+        StudentPocketMoneyEntry.objects.filter(
+            account=account,
+            student_id=student.id,
+        )
+        .select_related("created_by")
+        .order_by("-created_at", "-id")
+    )
+    for entry in entries:
+        entry.staff_name = _staff_display_name(entry.created_by) if entry.created_by_id else "—"
+    balance = student_pocket_money_balance(account, student.id)
+    credited = Decimal("0.00")
+    withdrawn = Decimal("0.00")
+    for entry in entries:
+        if entry.status != StudentPocketMoneyEntry.Status.APPROVED:
+            continue
+        if entry.direction == StudentPocketMoneyEntry.Direction.CREDIT:
+            credited += entry.amount or Decimal("0.00")
+        else:
+            withdrawn += entry.amount or Decimal("0.00")
+
+    # Chronological book of account with running balance.
+    ledger_rows = []
+    running = Decimal("0.00")
+    chronological = sorted(
+        [
+            e
+            for e in entries
+            if e.status == StudentPocketMoneyEntry.Status.APPROVED
+        ],
+        key=lambda e: (e.created_at, e.id),
+    )
+    for entry in chronological:
+        debit = Decimal("0.00")
+        credit = Decimal("0.00")
+        if entry.direction == StudentPocketMoneyEntry.Direction.CREDIT:
+            credit = entry.amount or Decimal("0.00")
+            running += credit
+        else:
+            debit = entry.amount or Decimal("0.00")
+            running -= debit
+        ledger_rows.append(
+            {
+                "entry": entry,
+                "debit": debit,
+                "credit": credit,
+                "balance": running,
+            }
+        )
+    # Book balances when credits = withdrawals + closing balance.
+    is_balanced = (credited - withdrawn) == balance and running == balance
+    active_tab = (request.GET.get("tab") or "ledger").strip().lower()
+    if active_tab not in {"ledger", "transactions"}:
+        active_tab = "ledger"
+
+    return render(
+        request,
+        "billing/pocket_money_student_transactions.html",
+        {
+            "account": account,
+            "level": level,
+            "student": student,
+            "entries": entries,
+            "ledger_rows": ledger_rows,
+            "balance": balance,
+            "credited": credited,
+            "withdrawn": withdrawn,
+            "is_balanced": is_balanced,
+            "active_tab": active_tab,
         },
     )
 
@@ -3480,24 +4537,209 @@ def school_account_detail(request, account_id):
 @require_GET
 def student_ledger(request, student_id):
     student = get_object_or_404(Student, pk=student_id)
-    charges = (
+    charges = list(
         FeeCharge.objects.filter(student_id=student_id)
-        .select_related("category")
-        .order_by("-created_at")
+        .select_related(
+            "category",
+            "fee_structure",
+            "fee_structure__account",
+            "structure_line",
+            "structure_line__vote",
+            "created_by",
+        )
+        .order_by("-created_at", "-id")
     )
-    payments = (
+    payments = list(
         Payment.objects.filter(student_id=student_id)
-        .select_related("charge")
-        .order_by("-received_at")
+        .select_related(
+            "charge",
+            "charge__category",
+            "charge__fee_structure",
+            "charge__fee_structure__account",
+            "charge__structure_line",
+            "charge__structure_line__vote",
+            "received_by",
+        )
+        .order_by("-received_at", "-id")
     )
+
+    def _charge_account(charge):
+        if not charge:
+            return None
+        if charge.fee_structure_id and charge.fee_structure:
+            return charge.fee_structure.account
+        return None
+
+    def _charge_vote(charge):
+        if not charge:
+            return None, "Unallocated", None
+        if charge.structure_line_id and charge.structure_line and charge.structure_line.vote_id:
+            vote = charge.structure_line.vote
+            return vote, vote.name, vote.allocation_order
+        if charge.category_id:
+            return None, charge.category.name, 9999
+        return None, "Unassigned", 9999
+
+    charged_total = Decimal("0.00")
+    for charge in charges:
+        if charge.status in (FeeCharge.Status.CANCELLED, FeeCharge.Status.WAIVED):
+            continue
+        charged_total += charge.amount or Decimal("0.00")
+
+    # Parent payments only — collapse allocation slices into one receipt each.
+    parent_txns = {}
+    for payment in payments:
+        amount = payment.amount or Decimal("0.00")
+        ref = (payment.reference or "").strip()
+        if ref:
+            key = (ref, payment.method)
+        else:
+            key = (f"PAY-{payment.id}", payment.method)
+        row = parent_txns.get(key)
+        if row is None:
+            parent_txns[key] = {
+                "sort_at": payment.received_at,
+                "sort_id": payment.id,
+                "posted_at": payment.received_at,
+                "method": payment.get_method_display(),
+                "method_code": payment.method,
+                "reference": ref or f"PAY-{payment.id}",
+                "amount": amount,
+                "staff_name": _staff_display_name(payment.received_by)
+                if payment.received_by_id
+                else "—",
+                "notes": (payment.notes or "").strip(),
+            }
+        else:
+            row["amount"] += amount
+            if payment.received_at < row["posted_at"]:
+                row["posted_at"] = payment.received_at
+                row["sort_at"] = payment.received_at
+            if payment.id < row["sort_id"]:
+                row["sort_id"] = payment.id
+            if row["staff_name"] == "—" and payment.received_by_id:
+                row["staff_name"] = _staff_display_name(payment.received_by)
+
+    payment_rows = sorted(
+        parent_txns.values(),
+        key=lambda row: (row["sort_at"], row["sort_id"]),
+    )
+    paid_total = sum((row["amount"] for row in payment_rows), Decimal("0.00"))
+
+    # Book: fees due (what should be paid) then parent payments received.
+    earliest_charge_at = None
+    for charge in charges:
+        if charge.status in (FeeCharge.Status.CANCELLED, FeeCharge.Status.WAIVED):
+            continue
+        if earliest_charge_at is None or charge.created_at < earliest_charge_at:
+            earliest_charge_at = charge.created_at
+
+    ledger_rows = []
+    running = Decimal("0.00")
+    if charged_total > 0:
+        running = charged_total
+        ledger_rows.append(
+            {
+                "kind": "due",
+                "posted_at": earliest_charge_at,
+                "particulars": "Fees due",
+                "hint": "Amount supposed to be paid",
+                "method": "—",
+                "reference": "FEE-DUE",
+                "staff_name": "—",
+                "debit": charged_total,
+                "credit": Decimal("0.00"),
+                "balance": running,
+            }
+        )
+    for row in payment_rows:
+        running -= row["amount"]
+        ledger_rows.append(
+            {
+                "kind": "payment",
+                "posted_at": row["posted_at"],
+                "particulars": "Payment received",
+                "hint": row["notes"] or "Parent payment",
+                "method": row["method"],
+                "reference": row["reference"],
+                "staff_name": row["staff_name"],
+                "debit": Decimal("0.00"),
+                "credit": row["amount"],
+                "balance": running,
+            }
+        )
+
+    # Votes summary: charged / paid / balance per vote head.
+    vote_map = {}
+    for charge in charges:
+        if charge.status in (FeeCharge.Status.CANCELLED, FeeCharge.Status.WAIVED):
+            continue
+        vote, vote_name, order = _charge_vote(charge)
+        account = _charge_account(charge)
+        key = vote.id if vote else f"cat-{charge.category_id or 'none'}"
+        row = vote_map.setdefault(
+            key,
+            {
+                "vote": vote,
+                "name": vote_name,
+                "order": order if order is not None else 9999,
+                "code": (
+                    vote.reference_code
+                    if vote and getattr(vote, "reference_code", None)
+                    else (charge.category.code if charge.category_id else "—")
+                ),
+                "account_name": account.name if account else "Unassigned ledger",
+                "account_id": account.id if account else None,
+                "charged": Decimal("0.00"),
+                "paid": Decimal("0.00"),
+            },
+        )
+        row["charged"] += charge.amount or Decimal("0.00")
+        row["paid"] += charge.amount_paid or Decimal("0.00")
+        if not row["account_id"] and account:
+            row["account_name"] = account.name
+            row["account_id"] = account.id
+
+    vote_rows = []
+    for row in sorted(vote_map.values(), key=lambda r: (r["order"], r["name"])):
+        vote_rows.append(
+            {
+                **row,
+                "balance": row["charged"] - row["paid"],
+            }
+        )
+
+    balance = student_balance(student_id)
+    is_balanced = (charged_total - paid_total) == balance
+    active_tab = (request.GET.get("tab") or "transactions").strip().lower()
+    if active_tab not in {"transactions", "votes"}:
+        active_tab = "transactions"
+
+    # Primary school ledger account for the page header.
+    ledger_account = None
+    for charge in charges:
+        ledger_account = _charge_account(charge)
+        if ledger_account:
+            break
+    if not ledger_account:
+        for payment in payments:
+            ledger_account = _charge_account(payment.charge)
+            if ledger_account:
+                break
+
     return render(
         request,
         "billing/student_ledger.html",
         {
             "student": student,
-            "charges": charges,
-            "payments": payments,
-            "balance": student_balance(student_id),
+            "ledger_account": ledger_account,
+            "ledger_rows": ledger_rows,
+            "vote_rows": vote_rows,
+            "balance": balance,
+            "charged_total": charged_total,
+            "paid_total": paid_total,
+            "is_balanced": is_balanced,
+            "active_tab": active_tab,
         },
     )
 
@@ -3551,11 +4793,17 @@ def accounts_settings(request):
         return parse_school_account_form(request, level_map)
 
     if request.method == "POST":
-        action = (request.POST.get("action") or "edit").strip()
-        account_id = request.POST.get("account_id")
+        action = (request.POST.get("action") or "create").strip()
+        account_id = (request.POST.get("account_id") or "").strip()
 
         if action in {"suspend", "unsuspend", "delete"}:
-            account = get_object_or_404(SchoolAccount, pk=account_id)
+            if not account_id.isdigit():
+                messages.error(request, "Select a valid account before continuing.")
+                return redirect("billing:accounts_settings")
+            account = SchoolAccount.objects.filter(pk=int(account_id)).first()
+            if account is None:
+                messages.error(request, "That account was not found.")
+                return redirect("billing:accounts_settings")
             if action == "delete":
                 label = account.name
                 account.delete()
@@ -3574,13 +4822,20 @@ def accounts_settings(request):
         if error:
             messages.error(request, error)
             open_account_modal = True
-            editing_account_id = int(account_id) if str(account_id or "").isdigit() else None
+            editing_account_id = int(account_id) if account_id.isdigit() else None
         elif action == "edit":
-            account = get_object_or_404(SchoolAccount, pk=account_id)
-            apply_school_account_form(account, form_data)
-            account.save()
-            messages.success(request, f"Account “{account.name}” updated.")
-            return redirect("billing:accounts_settings")
+            if not account_id.isdigit():
+                messages.error(request, "Select a valid account to edit.")
+                open_account_modal = True
+            else:
+                account = SchoolAccount.objects.filter(pk=int(account_id)).first()
+                if account is None:
+                    messages.error(request, "That account was not found.")
+                    return redirect("billing:accounts_settings")
+                apply_school_account_form(account, form_data)
+                account.save()
+                messages.success(request, f"Account “{account.name}” updated.")
+                return redirect("billing:accounts_settings")
         else:
             SchoolAccount.objects.create(
                 category=form_data["category"],
@@ -3788,6 +5043,13 @@ def account_votes_settings(request, account_id):
             return redirect("billing:account_votes_settings", account_id=account.id)
 
         elif action == "register_vote":
+            if not account.votes_enabled:
+                messages.error(
+                    request,
+                    "Votes are disabled on this account. Money can enter and leave without vote distribution. "
+                    "Edit the account and enable vote allocation to register votes.",
+                )
+                return redirect("billing:account_votes_settings", account_id=account.id)
             vote_form, amount, percentage, allocation_order, error = parse_vote_form()
             if error:
                 messages.error(request, error)
@@ -3834,7 +5096,9 @@ def account_votes_settings(request, account_id):
                 return redirect("billing:account_votes_settings", account_id=account.id)
 
     balance = current_account_balance()
-    votes_allocated = current_votes_allocated()
+    votes_allocated = (
+        Decimal("0.00") if not account.votes_enabled else current_votes_allocated()
+    )
     votes = AccountVote.objects.filter(account=account).order_by(
         "allocation_order", "created_at"
     )

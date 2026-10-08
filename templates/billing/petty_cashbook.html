@@ -4,13 +4,7 @@
 {% block header_kicker %}Cash desk{% endblock %}
 {% block header_title %}Petty cashbook{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:dashboard' %}" class="btn-ghost">← Dashboard</a>
-<a href="{% url 'billing:school_accounts' %}" class="btn-ghost">All school accounts</a>
-{% endblock %}
-
 {% block sidebar_page_nav %}
-{% include "components/finance_nav.html" %}
 {% endblock %}
 
 {% block content %}
@@ -101,7 +95,7 @@
     <p class="sa-empty-copy">
       Register a school account and set its category to Petty cashbook to see it here.
     </p>
-    <a href="{% url 'billing:school_accounts' %}" class="btn-primary">Go to school accounts</a>
+    <p class="text-sm text-ink-600">Open <strong>School accounts</strong> in the sidebar to set up petty cash accounts.</p>
   </div>
   {% endif %}
 </section>

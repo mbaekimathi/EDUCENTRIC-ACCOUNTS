@@ -4,11 +4,6 @@
 {% block header_kicker %}Supplier account{% endblock %}
 {% block header_title %}{{ supplier.name }}{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:store_suppliers' %}" class="btn-ghost">← All suppliers</a>
-<a href="{% url 'billing:store_stock_in_out' %}" class="btn-ghost">Stock in &amp; out</a>
-{% endblock %}
-
 {% block sidebar_page_nav %}
 {% include "components/store_nav.html" %}
 {% endblock %}
@@ -125,7 +120,7 @@
     <div class="sa-empty-mark" aria-hidden="true">M</div>
     <h4 class="sa-empty-title">No movements yet</h4>
     <p class="sa-empty-copy">Stock in and return-to-supplier transactions will appear here.</p>
-    <a href="{% url 'billing:store_stock_in_out' %}" class="btn-primary">Record stock movement</a>
+    <p class="text-sm text-ink-600">Use <strong>Stock in &amp; out</strong> in the sidebar to record a movement.</p>
   </div>
   {% endif %}
 </section>

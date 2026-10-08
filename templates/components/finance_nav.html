@@ -1,7 +1,7 @@
 <p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Finance</p>
 
 <a href="{% url 'billing:student_fees' %}"
-   class="app-nav-link"
+   class="app-nav-link {% if request.resolver_match.url_name == 'student_fees' or request.resolver_match.url_name == 'student_fees_account_levels' or request.resolver_match.url_name == 'student_fees_level_students' or request.resolver_match.url_name == 'student_fees_fee_structure' %}is-active{% endif %}"
    :title="sidebarCollapsed ? 'Students fees' : null"
    @click="sidebarOpen = false">
   <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
@@ -12,7 +12,7 @@
 </a>
 
 <a href="{% url 'billing:pocket_money' %}"
-   class="app-nav-link"
+   class="app-nav-link {% if request.resolver_match.url_name == 'pocket_money' %}is-active{% endif %}"
    :title="sidebarCollapsed ? 'Pocket money' : null"
    @click="sidebarOpen = false">
   <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
@@ -23,7 +23,7 @@
 </a>
 
 <a href="{% url 'billing:petty_cashbook' %}"
-   class="app-nav-link"
+   class="app-nav-link {% if request.resolver_match.url_name == 'petty_cashbook' or request.resolver_match.url_name == 'petty_cashbook_detail' %}is-active{% endif %}"
    :title="sidebarCollapsed ? 'Petty cashbook' : null"
    @click="sidebarOpen = false">
   <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
@@ -34,7 +34,7 @@
 </a>
 
 <a href="{% url 'billing:invoices' %}"
-   class="app-nav-link"
+   class="app-nav-link {% if request.resolver_match.url_name == 'invoices' %}is-active{% endif %}"
    :title="sidebarCollapsed ? 'Billing & invoices' : null"
    @click="sidebarOpen = false">
   <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
@@ -42,6 +42,19 @@
     <path d="M9 8h6M9 12h6" stroke-linecap="round"/>
   </svg>
   <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Billing &amp; invoices</span>
+</a>
+
+<a href="{% url 'billing:supplier_accounts' %}"
+   class="app-nav-link {% if request.resolver_match.url_name == 'supplier_accounts' or request.resolver_match.url_name == 'supplier_account_detail' %}is-active{% endif %}"
+   :title="sidebarCollapsed ? 'Supplier accounts' : null"
+   @click="sidebarOpen = false">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <circle cx="9" cy="8" r="3"/>
+    <path d="M4 19a5 5 0 0 1 10 0" stroke-linecap="round"/>
+    <circle cx="17" cy="9" r="2.2"/>
+    <path d="M16.2 19a4 4 0 0 1 5.3-3.4" stroke-linecap="round"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Supplier accounts</span>
 </a>
 
 <a href="{% url 'billing:school_accounts' %}"

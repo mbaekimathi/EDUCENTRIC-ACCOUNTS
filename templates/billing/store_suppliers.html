@@ -3,11 +3,6 @@
 {% block title %}Suppliers · Store{% endblock %}
 {% block header_title %}Suppliers{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:store_management' %}" class="btn-ghost">← Store</a>
-<a href="{% url 'billing:store_stock_in_out' %}" class="btn-ghost">Stock in &amp; out</a>
-{% endblock %}
-
 {% block sidebar_page_nav %}
 {% include "components/store_nav.html" %}
 {% endblock %}
@@ -97,7 +92,7 @@
     <div class="sa-empty-mark" aria-hidden="true">S</div>
     <h4 class="sa-empty-title">No suppliers yet</h4>
     <p class="sa-empty-copy">Suppliers are registered automatically when you record stock in or return stock to a supplier.</p>
-    <a href="{% url 'billing:store_stock_in_out' %}" class="btn-primary">Stock in &amp; out</a>
+    <p class="text-sm text-ink-600">Open <strong>Stock in &amp; out</strong> from the sidebar to record movements.</p>
   </div>
   {% endif %}
 </section>

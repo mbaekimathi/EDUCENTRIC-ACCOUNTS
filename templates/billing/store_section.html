@@ -3,10 +3,6 @@
 {% block title %}{{ module.title }} · Store{% endblock %}
 {% block header_title %}{{ module.title }}{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:store_management' %}" class="btn-ghost">← Store</a>
-{% endblock %}
-
 {% block sidebar_page_nav %}
 {% include "components/store_nav.html" %}
 {% endblock %}

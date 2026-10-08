@@ -1,0 +1,264 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}{{ student.display_name }} · Pocket money ledger{% endblock %}
+{% block header_kicker %}{{ account.name }}{% endblock %}
+{% block header_title %}{{ student.display_name }}{% endblock %}
+
+{% block sidebar_page_nav %}
+<p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Pocket money</p>
+{% url 'billing:pocket_money_level_students' account.id level.id as class_href %}
+{% include "components/sidebar_page_link.html" with href=class_href label="Back to learners" %}
+{% url 'billing:school_account_detail' account.id as account_href %}
+{% include "components/sidebar_page_link.html" with href=account_href label="Back to classes" %}
+{% endblock %}
+
+{% block content %}
+<section class="sa-hero has-banner">
+  <div class="sa-hero__banner">
+    <p class="sa-hero-kicker">{{ level.name }} · Pocket money</p>
+    <h2 class="sa-hero-title">Learner ledger</h2>
+    <p class="sa-hero-copy">{{ account.name }}</p>
+  </div>
+</section>
+
+<section class="sa-section">
+  <div class="sa-tabs" role="tablist" aria-label="Pocket money views">
+    <button
+      type="button"
+      class="sa-tab {% if active_tab == 'ledger' %}is-active{% endif %}"
+      role="tab"
+      aria-selected="{% if active_tab == 'ledger' %}true{% else %}false{% endif %}"
+      aria-controls="pocket-tab-ledger"
+      id="pocket-tab-btn-ledger"
+      data-pocket-tab="ledger"
+    >Ledger</button>
+    <button
+      type="button"
+      class="sa-tab {% if active_tab == 'transactions' %}is-active{% endif %}"
+      role="tab"
+      aria-selected="{% if active_tab == 'transactions' %}true{% else %}false{% endif %}"
+      aria-controls="pocket-tab-transactions"
+      id="pocket-tab-btn-transactions"
+      data-pocket-tab="transactions"
+    >Transactions</button>
+  </div>
+
+  <div
+    class="sa-tab-panel {% if active_tab != 'ledger' %}is-hidden{% endif %}"
+    id="pocket-tab-ledger"
+    role="tabpanel"
+    aria-labelledby="pocket-tab-btn-ledger"
+    {% if active_tab != 'ledger' %}hidden{% endif %}
+  >
+    <article class="ledger-modern {% if is_balanced %}is-balanced{% else %}is-unbalanced{% endif %}">
+      <header class="ledger-modern__head is-simple">
+        <div class="ledger-profile is-inline">
+          <div class="ledger-profile__avatar" aria-hidden="true">
+            {% if student.profile_image %}
+            <img src="{{ student.profile_image }}" alt="">
+            {% else %}
+            <span>{{ student.first_name|slice:":1" }}{{ student.last_name|slice:":1" }}</span>
+            {% endif %}
+          </div>
+          <div class="ledger-profile__body">
+            <p class="ledger-profile__name">{{ student.display_name }}</p>
+            <p class="ledger-profile__meta">
+              {{ student.admission_number|default:student.assessment_number }}
+              · {{ student.get_academic_level_display }}{% if student.class_group %} · {{ student.class_group }}{% endif %}
+              {% if is_balanced %}
+              · <span class="sa-badge is-active">Balanced</span>
+              {% else %}
+              · <span class="sa-badge is-suspended">Out of balance</span>
+              {% endif %}
+            </p>
+          </div>
+        </div>
+        <div class="ledger-modern__metrics is-compact">
+          <div>
+            <p class="ledger-modern__summary-label">Credits</p>
+            <p class="ledger-modern__summary-value is-credit">KES {{ credited|floatformat:2 }}</p>
+          </div>
+          <div>
+            <p class="ledger-modern__summary-label">Debits</p>
+            <p class="ledger-modern__summary-value is-debit">KES {{ withdrawn|floatformat:2 }}</p>
+          </div>
+          <div>
+            <p class="ledger-modern__summary-label">Balance</p>
+            <p class="ledger-modern__summary-value is-balance">KES {{ balance|floatformat:2 }}</p>
+          </div>
+        </div>
+      </header>
+
+      <div class="ledger-modern__sheet">
+        <table class="ledger-modern__table">
+          <thead>
+            <tr>
+              <th class="is-row">#</th>
+              <th>Posted</th>
+              <th>Particulars</th>
+              <th>Method</th>
+              <th>Reference</th>
+              <th class="is-num">Debit</th>
+              <th class="is-num">Credit</th>
+              <th class="is-num">Balance</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="is-muted">
+              <td class="is-row">0</td>
+              <td>—</td>
+              <td>
+                <p class="ledger-modern__main">Opening balance</p>
+                <p class="ledger-modern__hint">Balance b/d</p>
+              </td>
+              <td>—</td>
+              <td>—</td>
+              <td class="is-num">—</td>
+              <td class="is-num">—</td>
+              <td class="is-num">0.00</td>
+            </tr>
+            {% for row in ledger_rows %}
+            <tr>
+              <td class="is-row">{{ forloop.counter }}</td>
+              <td>
+                <p class="ledger-modern__main">{{ row.entry.created_at|date:"d M Y" }} · {{ row.entry.created_at|date:"H:i" }}</p>
+                <p class="ledger-modern__hint">{{ row.entry.staff_name }}</p>
+              </td>
+              <td>
+                <p class="ledger-modern__main">
+                  {% if row.entry.direction == 'CREDIT' %}Top up{% else %}Withdraw{% endif %}
+                </p>
+                <p class="ledger-modern__hint">
+                  {% if row.entry.description %}{{ row.entry.description }}{% else %}{{ row.entry.reference_number }}{% endif %}
+                </p>
+              </td>
+              <td>{{ row.entry.get_method_display }}</td>
+              <td>
+                <p class="ledger-modern__main">{{ row.entry.reference_code }}</p>
+                <p class="ledger-modern__hint">{{ row.entry.reference_number }}</p>
+              </td>
+              <td class="is-num is-debit">{% if row.debit %}{{ row.debit|floatformat:2 }}{% else %}—{% endif %}</td>
+              <td class="is-num is-credit">{% if row.credit %}{{ row.credit|floatformat:2 }}{% else %}—{% endif %}</td>
+              <td class="is-num is-balance">{{ row.balance|floatformat:2 }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="8" class="ledger-modern__empty">No postings on this account yet.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="5">Totals</td>
+              <td class="is-num is-debit">{{ withdrawn|floatformat:2 }}</td>
+              <td class="is-num is-credit">{{ credited|floatformat:2 }}</td>
+              <td class="is-num is-balance">{{ balance|floatformat:2 }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </article>
+  </div>
+
+  <div
+    class="sa-tab-panel {% if active_tab != 'transactions' %}is-hidden{% endif %}"
+    id="pocket-tab-transactions"
+    role="tabpanel"
+    aria-labelledby="pocket-tab-btn-transactions"
+    {% if active_tab != 'transactions' %}hidden{% endif %}
+  >
+    <div class="sa-section-head">
+      <div>
+        <h3 class="sa-section-title">Transactions</h3>
+        <p class="sa-section-copy">Chronological list of top-ups and withdrawals</p>
+      </div>
+    </div>
+
+    <div class="sa-table-wrap">
+      <table class="sa-table">
+        <thead>
+          <tr>
+            <th>Reference</th>
+            <th>Type</th>
+            <th>Method</th>
+            <th>Amount</th>
+            <th>Status</th>
+            <th>Employee</th>
+            <th>Date &amp; time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entry in entries %}
+          <tr>
+            <td>
+              <p class="sa-table-primary">{{ entry.reference_code }}</p>
+              <p class="sa-table-secondary">
+                {{ entry.reference_number }}{% if entry.description %} · {{ entry.description }}{% endif %}
+              </p>
+            </td>
+            <td>{{ entry.get_direction_display }}</td>
+            <td>{{ entry.get_method_display }}</td>
+            <td class="{% if entry.direction == 'CREDIT' %}is-brand{% else %}is-accent{% endif %}">
+              {% if entry.direction == 'DEBIT' %}−{% endif %}KES {{ entry.amount|floatformat:2 }}
+            </td>
+            <td>
+              <span class="sa-badge {% if entry.status == 'APPROVED' %}is-active{% elif entry.status == 'PENDING' %}is-pending{% else %}is-suspended{% endif %}">
+                {{ entry.get_status_display }}
+              </span>
+            </td>
+            <td>
+              <p class="sa-table-primary">{{ entry.staff_name }}</p>
+            </td>
+            <td>
+              <p class="sa-table-primary">{{ entry.created_at|date:"d M Y" }}</p>
+              <p class="sa-table-secondary">{{ entry.created_at|date:"H:i:s" }}</p>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="7" class="sa-table-empty">No pocket money transactions yet.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<script>
+(function () {
+  var tabs = document.querySelectorAll("[data-pocket-tab]");
+  var panels = {
+    ledger: document.getElementById("pocket-tab-ledger"),
+    transactions: document.getElementById("pocket-tab-transactions")
+  };
+
+  function activate(name) {
+    tabs.forEach(function (btn) {
+      var on = btn.getAttribute("data-pocket-tab") === name;
+      btn.classList.toggle("is-active", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    Object.keys(panels).forEach(function (key) {
+      var panel = panels[key];
+      if (!panel) return;
+      var on = key === name;
+      panel.classList.toggle("is-hidden", !on);
+      if (on) panel.removeAttribute("hidden");
+      else panel.setAttribute("hidden", "hidden");
+    });
+    try {
+      var url = new URL(window.location.href);
+      url.searchParams.set("tab", name);
+      window.history.replaceState({}, "", url.toString());
+    } catch (err) {}
+  }
+
+  tabs.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      activate(btn.getAttribute("data-pocket-tab") || "ledger");
+    });
+  });
+})();
+</script>
+{% endblock %}

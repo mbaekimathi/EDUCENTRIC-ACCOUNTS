@@ -4,9 +4,12 @@
 {% block header_kicker %}Students fees{% endblock %}
 {% block header_title %}{{ account.name }}{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:student_fees' %}" class="btn-ghost">← Fee accounts</a>
-<a href="{% url 'billing:school_account_detail' account.id %}" class="btn-ghost">Account ledger</a>
+{% block sidebar_page_nav %}
+<p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Fees</p>
+{% url 'billing:student_fees_fee_structure' account.id as fee_structure_href %}
+{% include "components/sidebar_page_link.html" with href=fee_structure_href label="Fee structure" %}
+{% url 'billing:account_votes_settings' account.id as fee_votes_href %}
+{% include "components/sidebar_page_link.html" with href=fee_votes_href label="Fee votes" %}
 {% endblock %}
 
 {% block content %}
@@ -15,7 +18,7 @@
     <p class="sa-hero-kicker">{{ account.category_label }}</p>
     <h2 class="sa-hero-title">Academic levels</h2>
     <p class="sa-hero-copy">
-      Levels linked to {{ account.name }}. Open a level to see learners with payment totals and balances.
+      Levels linked to {{ account.name }}. Open a class ledger for all learners, or collect fees per learner.
     </p>
   </div>
 </section>
@@ -49,7 +52,10 @@
           <td>{% if row.level.category %}{{ row.level.category }}{% else %}—{% endif %}</td>
           <td>{{ row.student_count }}</td>
           <td>
-            <a href="{% url 'billing:student_fees_level_students' account.id row.level.id %}" class="btn-primary btn-compact">Open</a>
+            <div class="sa-account-actions-inline">
+              <a href="{% url 'billing:student_fees_level_transactions' account.id row.level.id %}" class="btn-primary btn-compact">Ledger</a>
+              <a href="{% url 'billing:student_fees_level_students' account.id row.level.id %}" class="btn-ghost btn-compact">Collect</a>
+            </div>
           </td>
         </tr>
         {% endfor %}
@@ -61,7 +67,7 @@
     <div class="sa-empty-mark" aria-hidden="true">L</div>
     <h4 class="sa-empty-title">No academic levels linked</h4>
     <p class="sa-empty-copy">Edit this account and link academic levels to continue.</p>
-    <a href="{% url 'billing:school_account_detail' account.id %}" class="btn-primary">Edit account</a>
+    <p class="text-sm text-ink-600">Open <strong>Fee structure</strong> or <strong>Fee votes</strong> in the sidebar to continue setup.</p>
   </div>
   {% endif %}
 </section>

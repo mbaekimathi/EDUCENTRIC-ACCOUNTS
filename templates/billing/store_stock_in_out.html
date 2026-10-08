@@ -3,11 +3,6 @@
 {% block title %}Stock in & out · Store{% endblock %}
 {% block header_title %}Stock in & out{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:store_management' %}" class="btn-ghost">← Store</a>
-<a href="{% url 'billing:store_register_item' %}" class="btn-ghost">Register item</a>
-{% endblock %}
-
 {% block sidebar_page_nav %}
 {% include "components/store_nav.html" %}
 {% endblock %}
@@ -116,7 +111,7 @@
     <div class="sa-empty-mark" aria-hidden="true">S</div>
     <h4 class="sa-empty-title">No store items yet</h4>
     <p class="sa-empty-copy">Register items first, then stock them in or out by category.</p>
-    <a href="{% url 'billing:store_register_item' %}" class="btn-primary">Register item</a>
+    <p class="text-sm text-ink-600">Use <strong>Register item</strong> in the sidebar to add stock items.</p>
   </div>
 </section>
 {% endif %}

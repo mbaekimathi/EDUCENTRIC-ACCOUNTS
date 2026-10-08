@@ -4,13 +4,7 @@
 {% block header_kicker %}Collections{% endblock %}
 {% block header_title %}Billing and invoices{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:dashboard' %}" class="btn-ghost">← Dashboard</a>
-<a href="{% url 'billing:supplier_accounts' %}" class="btn-primary">Suppliers</a>
-{% endblock %}
-
 {% block sidebar_page_nav %}
-{% include "components/finance_nav.html" %}
 {% endblock %}
 
 {% block content %}
@@ -19,9 +13,6 @@
     <p class="sa-hero-kicker">Collections</p>
     <h2 class="sa-hero-title">Billing and invoices</h2>
     <p class="sa-hero-copy">Invoice-style fee charges, payment receipts, and supplier accounts.</p>
-  </div>
-  <div class="sa-hero__body flex flex-wrap justify-end gap-2">
-    <a href="{% url 'billing:supplier_accounts' %}" class="btn-primary sa-hero-cta">Supplier accounts</a>
   </div>
 </section>
 
@@ -41,12 +32,9 @@
 </section>
 
 <section class="overflow-hidden rounded-[1.5rem] border border-ink-950/8 bg-white/90 shadow-panel backdrop-blur mb-5">
-  <header class="border-b border-ink-950/8 px-5 py-4 sm:px-6 flex flex-wrap items-center justify-between gap-3">
-    <div>
-      <h3 class="font-display text-xl font-semibold text-ink-950">Suppliers</h3>
-      <p class="mt-0.5 text-sm text-ink-600">Pay store deliveries from school accounts</p>
-    </div>
-    <a href="{% url 'billing:supplier_accounts' %}" class="btn-ghost">Open supplier accounts · {{ supplier_count }}</a>
+  <header class="border-b border-ink-950/8 px-5 py-4 sm:px-6">
+    <h3 class="font-display text-xl font-semibold text-ink-950">Suppliers</h3>
+    <p class="mt-0.5 text-sm text-ink-600">Pay store deliveries from school accounts · {{ supplier_count }} on file</p>
   </header>
 </section>
 

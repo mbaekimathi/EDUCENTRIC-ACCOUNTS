@@ -4,8 +4,11 @@
 {% block header_kicker %}{{ account.name }}{% endblock %}
 {% block header_title %}{{ level.name }}{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:student_fees_account_levels' account.id %}" class="btn-ghost">← Levels</a>
+{% block sidebar_page_nav %}
+<p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Fees</p>
+{% include "components/sidebar_page_link.html" with href=fee_structure_page_url label="Fee structure" %}
+{% url 'billing:account_votes_settings' account.id as fee_votes_href %}
+{% include "components/sidebar_page_link.html" with href=fee_votes_href label="Fee votes" %}
 {% endblock %}
 
 {% block content %}
@@ -37,6 +40,18 @@
     <p class="sa-stat-value is-accent" data-stat="balance">KES {{ totals.balance|floatformat:2 }}</p>
   </article>
 </section>
+
+{% if not has_fee_structures %}
+<section class="sa-section">
+  <div class="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-4 text-sm text-amber-950">
+    <p class="font-semibold">No fee structure for {{ level.name }}</p>
+    <p class="mt-1">
+      Register a fee structure for this level before you can post fee vouchers or update learner fees.
+    </p>
+    <p class="mt-3 text-sm text-ink-600">Open <strong>Fee structure</strong> in the sidebar to get started.</p>
+  </div>
+</section>
+{% endif %}
 
 <section class="sa-section">
   <div class="sa-section-head">
@@ -124,6 +139,26 @@
   {% endif %}
 </section>
 
+<dialog id="fee-vouchers-modal" class="account-modal">
+  <div class="account-modal-card">
+    <div class="account-modal-head">
+      <div>
+        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-400">Fee vouchers required</p>
+        <h3 class="font-display text-2xl font-semibold text-ink-950" id="fee-vouchers-title">Create fee vouchers first</h3>
+        <p class="mt-1 text-sm text-ink-500" id="fee-vouchers-copy">
+          This learner has no fee vouchers yet. Apply a fee structure to post vouchers before updating fees.
+        </p>
+      </div>
+      <button type="button" class="account-modal-close" data-close-vouchers-modal aria-label="Close">×</button>
+    </div>
+    <div class="account-modal-actions">
+      <button type="button" class="btn-ghost" data-close-vouchers-modal>Close</button>
+      <a href="{{ fee_vouchers_create_url }}" class="btn-primary" id="fee-vouchers-link">Create fee vouchers</a>
+      <a href="{{ fee_structure_create_url }}" class="btn-ghost" id="fee-structure-link" hidden>Create fee structure</a>
+    </div>
+  </div>
+</dialog>
+
 <dialog id="payment-modal" class="account-modal">
   <form method="post" action="{% url 'billing:student_fees_level_students' account.id level.id %}{% if q %}?q={{ q|urlencode }}{% endif %}" class="account-modal-card" id="payment-form" novalidate autocomplete="off">
     {% csrf_token %}
@@ -170,11 +205,58 @@
         <input type="text" name="reference" id="payment-reference" maxlength="120" value="" class="field-input" data-uppercase placeholder="Receipt / M-Pesa / cheque number" autocomplete="off"{% if mpesa_stk_ready %} disabled{% endif %}>
       </label>
 
-      <label class="block" id="payment-phone-wrap"{% if not mpesa_stk_ready %} hidden{% endif %}>
-        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">M-Pesa phone *</span>
-        <input type="tel" name="phone" id="payment-phone" maxlength="20" value="" class="field-input" placeholder="07XXXXXXXX" autocomplete="off"{% if mpesa_stk_ready %} required{% endif %}>
-        <p class="mt-1.5 text-xs text-ink-400">An STK prompt is sent to this number for the amount above. The M-Pesa receipt is recorded automatically.</p>
-      </label>
+      <div id="payment-phone-wrap"{% if not mpesa_stk_ready %} hidden{% endif %}>
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">M-Pesa phone *</span>
+          <input type="tel" name="phone" id="payment-phone" maxlength="20" value="" class="field-input" placeholder="07XXXXXXXX" autocomplete="off"{% if mpesa_stk_ready %} required{% endif %}>
+          <p class="mt-1.5 text-xs text-ink-400">An STK prompt is sent to this number for the amount above. The M-Pesa receipt is recorded automatically.</p>
+        </label>
+      </div>
+
+      <div id="payment-barter-wrap" hidden>
+        <input type="hidden" name="supplier_id" id="payment-supplier-id" value="">
+        <div class="relative" data-barter-suggest>
+          <label class="block">
+            <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Supplier name *</span>
+            <input
+              type="text"
+              name="supplier_name"
+              id="payment-supplier-name"
+              maxlength="160"
+              value=""
+              class="field-input"
+              data-uppercase
+              data-barter-field="name"
+              placeholder="Search registered supplier by name"
+              autocomplete="off"
+            >
+          </label>
+          <ul class="supplier-suggest-list" data-suggest-list hidden></ul>
+        </div>
+        <div class="relative mt-4" data-barter-suggest>
+          <label class="block">
+            <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Supplier phone *</span>
+            <input
+              type="tel"
+              name="supplier_phone"
+              id="payment-supplier-phone"
+              maxlength="24"
+              value=""
+              class="field-input"
+              data-barter-field="phone"
+              placeholder="Search by supplier phone"
+              autocomplete="off"
+            >
+          </label>
+          <ul class="supplier-suggest-list" data-suggest-list hidden></ul>
+        </div>
+        <div id="payment-barter-owed" class="mt-4 rounded-2xl border border-ink-950/10 bg-ink-50/70 px-4 py-3 text-sm text-ink-600" hidden>
+          <p class="font-semibold text-ink-900" id="payment-barter-owed-title">School owes this supplier</p>
+          <p class="mt-1 text-lg font-semibold text-brand" id="payment-barter-owed-amount">KES 0.00</p>
+          <p class="mt-1 text-xs text-ink-500" id="payment-barter-owed-copy">This balance can be traded against the learner’s fee payment.</p>
+        </div>
+        <p class="mt-2 text-xs text-ink-400">Live search fills name and phone together when the supplier is registered. Amount cannot exceed what the school owes them.</p>
+      </div>
 
       <label class="block" id="payment-notes-wrap">
         <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Notes</span>
@@ -229,6 +311,52 @@
   </div>
 </div>
 
+<style>
+  .supplier-suggest-list {
+    position: absolute;
+    z-index: 40;
+    left: 0;
+    right: 0;
+    top: calc(100% - 0.15rem);
+    margin: 0;
+    padding: 0.35rem;
+    list-style: none;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    border-radius: 0.9rem;
+    background: #fff;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
+    max-height: 14rem;
+    overflow: auto;
+  }
+  .supplier-suggest-list[hidden] { display: none; }
+  .supplier-suggest-list button {
+    display: flex;
+    width: 100%;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.55rem 0.7rem;
+    border: 0;
+    border-radius: 0.65rem;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+  }
+  .supplier-suggest-list button:hover,
+  .supplier-suggest-list button.is-active {
+    background: rgba(15, 23, 42, 0.06);
+  }
+  .supplier-suggest-list .suggest-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #0f172a;
+  }
+  .supplier-suggest-list .suggest-phone {
+    font-size: 0.75rem;
+    color: #64748b;
+    white-space: nowrap;
+  }
+</style>
 <script>
 (function () {
   var modal = document.getElementById("payment-modal");
@@ -238,6 +366,11 @@
   var methodMeta = {{ payment_options_json|safe }};
   var stkInitiateUrl = "{{ stk_initiate_url|escapejs }}";
   var stkStatusTemplate = "{{ stk_status_url_template|escapejs }}";
+  var supplierSuggestUrl = "{{ supplier_suggest_url|escapejs }}";
+  var feeStructurePageUrl = "{{ fee_structure_page_url|escapejs }}";
+  var feeStructureCreateUrl = "{{ fee_structure_create_url|escapejs }}";
+  var feeVouchersCreateUrl = "{{ fee_vouchers_create_url|escapejs }}";
+  var hasFeeStructures = {% if has_fee_structures %}true{% else %}false{% endif %};
 
   var form = document.getElementById("payment-form");
   var studentIdInput = document.getElementById("payment-student-id");
@@ -247,6 +380,14 @@
   var phoneInput = document.getElementById("payment-phone");
   var referenceWrap = document.getElementById("payment-reference-wrap");
   var referenceInput = document.getElementById("payment-reference");
+  var barterWrap = document.getElementById("payment-barter-wrap");
+  var supplierIdInput = document.getElementById("payment-supplier-id");
+  var supplierNameInput = document.getElementById("payment-supplier-name");
+  var supplierPhoneInput = document.getElementById("payment-supplier-phone");
+  var barterOwedBox = document.getElementById("payment-barter-owed");
+  var barterOwedTitle = document.getElementById("payment-barter-owed-title");
+  var barterOwedAmount = document.getElementById("payment-barter-owed-amount");
+  var barterOwedCopy = document.getElementById("payment-barter-owed-copy");
   var notesWrap = document.getElementById("payment-notes-wrap");
   var notesInput = document.getElementById("payment-notes");
   var titleEl = document.getElementById("payment-modal-title");
@@ -263,12 +404,19 @@
   var loadingRef = document.getElementById("stk-loading-ref");
   var loadingCancel = document.getElementById("stk-loading-cancel");
   var loadingRetry = document.getElementById("stk-loading-retry");
+  var vouchersModal = document.getElementById("fee-vouchers-modal");
+  var vouchersTitle = document.getElementById("fee-vouchers-title");
+  var vouchersCopy = document.getElementById("fee-vouchers-copy");
+  var vouchersLink = document.getElementById("fee-vouchers-link");
+  var structureLink = document.getElementById("fee-structure-link");
   var csrfInput = form ? form.querySelector("input[name=csrfmiddlewaretoken]") : null;
   var readyAt = 0;
   var pollTimer = null;
   var pollCount = 0;
   var stkBusy = false;
   var overlayMode = "idle";
+  var suggestTimers = {};
+  var selectedSupplierOwed = 0;
 
   function formatKes(amount) {
     var n = Number(amount);
@@ -354,7 +502,7 @@
   }
 
   function setFormLocked(locked) {
-    [amountInput, methodSelect, phoneInput, notesInput].forEach(function (el) {
+    [amountInput, methodSelect, phoneInput, notesInput, supplierNameInput, supplierPhoneInput].forEach(function (el) {
       if (el) el.disabled = !!locked;
     });
     if (referenceInput) {
@@ -364,6 +512,151 @@
       if (!needsReference) referenceInput.value = "";
     }
     if (submitBtn) submitBtn.disabled = !!locked;
+  }
+
+  function hideBarterSuggestLists() {
+    if (!barterWrap) return;
+    barterWrap.querySelectorAll("[data-suggest-list]").forEach(function (list) {
+      list.hidden = true;
+      list.innerHTML = "";
+    });
+  }
+
+  function clearBarterSupplier() {
+    if (supplierIdInput) supplierIdInput.value = "";
+    selectedSupplierOwed = 0;
+    if (barterOwedBox) barterOwedBox.hidden = true;
+  }
+
+  function showBarterOwed(supplier) {
+    selectedSupplierOwed = Number(supplier && supplier.outstanding != null ? supplier.outstanding : 0) || 0;
+    if (!barterOwedBox) return;
+    barterOwedBox.hidden = false;
+    if (barterOwedTitle) {
+      barterOwedTitle.textContent = supplier && supplier.name
+        ? ("School owes " + supplier.name)
+        : "School owes this supplier";
+    }
+    if (barterOwedAmount) barterOwedAmount.textContent = formatKes(selectedSupplierOwed);
+    if (barterOwedCopy) {
+      barterOwedCopy.textContent = selectedSupplierOwed > 0
+        ? "This balance can be traded against the learner’s fee payment."
+        : "No tradable balance is currently owed to this supplier.";
+    }
+    if (amountInput && selectedSupplierOwed > 0) {
+      var current = Number(amountInput.value || 0);
+      var studentBalance = 0;
+      var sid = studentIdInput ? studentIdInput.value : "";
+      if (sid && students[String(sid)]) {
+        studentBalance = Number(students[String(sid)].balance || 0) || 0;
+      }
+      var suggested = selectedSupplierOwed;
+      if (studentBalance > 0) suggested = Math.min(selectedSupplierOwed, studentBalance);
+      if (!current || current > selectedSupplierOwed) {
+        amountInput.value = suggested.toFixed(2);
+      }
+      amountInput.max = String(selectedSupplierOwed);
+    }
+  }
+
+  function pickBarterSupplier(supplier) {
+    if (supplierIdInput) supplierIdInput.value = supplier.id || "";
+    if (supplierNameInput) supplierNameInput.value = supplier.name || "";
+    if (supplierPhoneInput) supplierPhoneInput.value = supplier.phone_number || "";
+    hideBarterSuggestLists();
+    showBarterOwed(supplier);
+  }
+
+  function renderBarterSuggestions(listEl, results) {
+    listEl.innerHTML = "";
+    if (!results.length) {
+      listEl.hidden = true;
+      return;
+    }
+    results.forEach(function (row, index) {
+      var li = document.createElement("li");
+      var button = document.createElement("button");
+      button.type = "button";
+      button.innerHTML =
+        '<span class="suggest-name"></span><span class="suggest-phone"></span>';
+      button.querySelector(".suggest-name").textContent = row.name;
+      button.querySelector(".suggest-phone").textContent =
+        (row.phone_number || "") +
+        (row.outstanding != null ? " · owes " + formatKes(row.outstanding) : "");
+      if (index === 0) button.classList.add("is-active");
+      button.addEventListener("mousedown", function (event) {
+        event.preventDefault();
+        pickBarterSupplier(row);
+      });
+      li.appendChild(button);
+      listEl.appendChild(li);
+    });
+    listEl.hidden = false;
+  }
+
+  function fetchBarterSuggestions(input, listEl) {
+    var q = (input.value || "").trim();
+    if (q.length < 2 || !supplierSuggestUrl) {
+      listEl.hidden = true;
+      listEl.innerHTML = "";
+      return;
+    }
+    fetch(supplierSuggestUrl + "?q=" + encodeURIComponent(q), {
+      headers: { Accept: "application/json" },
+      credentials: "same-origin",
+    })
+      .then(function (response) { return response.json(); })
+      .then(function (data) {
+        renderBarterSuggestions(listEl, (data && data.results) || []);
+      })
+      .catch(function () {
+        listEl.hidden = true;
+      });
+  }
+
+  function bindBarterSuggest(input) {
+    if (!input) return;
+    var wrap = input.closest("[data-barter-suggest]");
+    if (!wrap) return;
+    var listEl = wrap.querySelector("[data-suggest-list]");
+    var key = input.id;
+    input.addEventListener("input", function () {
+      clearBarterSupplier();
+      clearTimeout(suggestTimers[key]);
+      suggestTimers[key] = setTimeout(function () {
+        fetchBarterSuggestions(input, listEl);
+      }, 220);
+    });
+    input.addEventListener("focus", function () {
+      if ((input.value || "").trim().length >= 2) {
+        fetchBarterSuggestions(input, listEl);
+      }
+    });
+    input.addEventListener("blur", function () {
+      setTimeout(function () { listEl.hidden = true; }, 150);
+    });
+    input.addEventListener("keydown", function (event) {
+      var active = listEl.querySelector("button.is-active");
+      var buttons = Array.prototype.slice.call(listEl.querySelectorAll("button"));
+      if (event.key === "Escape") {
+        listEl.hidden = true;
+        return;
+      }
+      if (!buttons.length) return;
+      var index = buttons.indexOf(active);
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        if (active) active.classList.remove("is-active");
+        buttons[(index + 1) % buttons.length].classList.add("is-active");
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        if (active) active.classList.remove("is-active");
+        buttons[(index - 1 + buttons.length) % buttons.length].classList.add("is-active");
+      } else if (event.key === "Enter" && active && !listEl.hidden) {
+        event.preventDefault();
+        active.dispatchEvent(new Event("mousedown"));
+      }
+    });
   }
 
   function cancelStkWaiting() {
@@ -457,19 +750,47 @@
     var meta = methodMeta[methodSelect.value] || null;
     var needsPhone = !!(meta && meta.input === "phone");
     var needsReference = !!(meta && meta.input === "reference");
+    var needsSupplier = !!(meta && meta.input === "supplier");
 
-    if (phoneWrap) phoneWrap.hidden = !needsPhone;
-    if (referenceWrap) referenceWrap.hidden = !needsReference;
+    if (phoneWrap) {
+      phoneWrap.hidden = !needsPhone;
+      phoneWrap.style.display = needsPhone ? "" : "none";
+    }
+    if (referenceWrap) {
+      referenceWrap.hidden = !needsReference;
+      referenceWrap.style.display = needsReference ? "" : "none";
+    }
+    if (barterWrap) {
+      barterWrap.hidden = !needsSupplier;
+      barterWrap.style.display = needsSupplier ? "" : "none";
+    }
     if (notesWrap) notesWrap.hidden = !!needsPhone && stkBusy;
+    if (stkStatus && !needsPhone) setStkStatus(false);
 
     if (phoneInput) {
       phoneInput.required = needsPhone;
-      phoneInput.disabled = !needsPhone && stkBusy;
+      phoneInput.disabled = !needsPhone || stkBusy;
+      if (!needsPhone) phoneInput.value = "";
     }
     if (referenceInput) {
       referenceInput.required = needsReference;
       referenceInput.disabled = !needsReference;
       if (!needsReference) referenceInput.value = "";
+    }
+    if (supplierNameInput) {
+      supplierNameInput.required = needsSupplier;
+      supplierNameInput.disabled = !needsSupplier;
+    }
+    if (supplierPhoneInput) {
+      supplierPhoneInput.required = needsSupplier;
+      supplierPhoneInput.disabled = !needsSupplier;
+    }
+    if (!needsSupplier) {
+      clearBarterSupplier();
+      hideBarterSuggestLists();
+      if (supplierNameInput) supplierNameInput.value = "";
+      if (supplierPhoneInput) supplierPhoneInput.value = "";
+      if (amountInput) amountInput.removeAttribute("max");
     }
     if (submitBtn) {
       submitBtn.textContent = needsPhone ? "Send STK prompt" : "Record payment";
@@ -500,6 +821,10 @@
       if (phoneInput) phoneInput.value = student && student.phone ? student.phone : "";
       if (referenceInput) referenceInput.value = "";
       if (notesInput) notesInput.value = "";
+      if (supplierNameInput) supplierNameInput.value = "";
+      if (supplierPhoneInput) supplierPhoneInput.value = "";
+      clearBarterSupplier();
+      hideBarterSuggestLists();
       if (methodSelect && methodSelect.options.length > 1) {
         var stkOption = methodSelect.querySelector('option[value="MPESA_STK"]');
         if (stkOption) {
@@ -512,19 +837,79 @@
     syncMethodFields();
   }
 
+  function openDialog(el) {
+    if (!el) return;
+    try {
+      if (typeof el.showModal === "function") {
+        if (!el.open) el.showModal();
+      } else {
+        el.setAttribute("open", "open");
+      }
+    } catch (err) {
+      el.setAttribute("open", "open");
+    }
+  }
+
+  function closeDialog(el) {
+    if (!el) return;
+    try {
+      if (typeof el.close === "function" && el.open) el.close();
+      else el.removeAttribute("open");
+    } catch (err) {
+      el.removeAttribute("open");
+    }
+  }
+
+  function openVouchersRequired(student) {
+    if (vouchersTitle) {
+      if (!hasFeeStructures) {
+        vouchersTitle.textContent = "Create a fee structure first";
+      } else {
+        vouchersTitle.textContent = student && student.name
+          ? ("No fee vouchers for " + student.name)
+          : "Create fee vouchers first";
+      }
+    }
+    if (vouchersCopy) {
+      if (!hasFeeStructures) {
+        vouchersCopy.textContent =
+          "No fee structure covers this level yet. Register a fee structure before posting vouchers or updating learner fees.";
+      } else {
+        vouchersCopy.textContent =
+          "This learner has no fee vouchers yet. Apply a fee structure to post vouchers before updating fees.";
+      }
+    }
+    if (vouchersLink) {
+      vouchersLink.hidden = !hasFeeStructures;
+      if (hasFeeStructures && feeVouchersCreateUrl) {
+        vouchersLink.setAttribute("href", feeVouchersCreateUrl);
+      }
+    }
+    if (structureLink) {
+      structureLink.hidden = !!hasFeeStructures;
+      if (!hasFeeStructures && feeStructureCreateUrl) {
+        structureLink.setAttribute("href", feeStructureCreateUrl);
+      }
+    }
+    if (vouchersLink && structureLink) {
+      vouchersLink.classList.toggle("btn-primary", hasFeeStructures);
+      vouchersLink.classList.toggle("btn-ghost", !hasFeeStructures);
+      structureLink.classList.toggle("btn-primary", !hasFeeStructures);
+      structureLink.classList.toggle("btn-ghost", hasFeeStructures);
+    }
+    openDialog(vouchersModal);
+  }
+
   function openModal(studentId, preserveForm) {
+    var student = students[String(studentId)] || null;
+    if (!preserveForm && (!student || !student.has_fee_vouchers)) {
+      openVouchersRequired(student);
+      return;
+    }
     fillStudent(studentId, !!preserveForm);
     readyAt = Date.now() + 400;
     window.setTimeout(function () {
-      try {
-        if (typeof modal.showModal === "function") {
-          if (!modal.open) modal.showModal();
-        } else {
-          modal.setAttribute("open", "open");
-        }
-      } catch (err) {
-        modal.setAttribute("open", "open");
-      }
+      openDialog(modal);
     }, 0);
   }
 
@@ -778,9 +1163,31 @@
       if (isStkMethod()) {
         event.preventDefault();
         startStkPush();
+        return;
+      }
+      var meta = methodSelect ? methodMeta[methodSelect.value] : null;
+      if (meta && meta.input === "supplier") {
+        if (!supplierIdInput || !supplierIdInput.value) {
+          event.preventDefault();
+          setStkStatus(true, "Supplier required", "Search and select a registered supplier for barter trade.", "");
+          return;
+        }
+        var amt = Number(amountInput && amountInput.value || 0);
+        if (selectedSupplierOwed > 0 && amt > selectedSupplierOwed) {
+          event.preventDefault();
+          setStkStatus(
+            true,
+            "Amount too high",
+            "Barter amount cannot exceed what the school owes this supplier (" + formatKes(selectedSupplierOwed) + ").",
+            ""
+          );
+        }
       }
     });
   }
+
+  bindBarterSuggest(supplierNameInput);
+  bindBarterSuggest(supplierPhoneInput);
 
   document.querySelectorAll("[data-open-payment-modal]").forEach(function (btn) {
     btn.addEventListener("click", function (event) {
@@ -805,9 +1212,20 @@
       closeModal();
     });
   });
+  document.querySelectorAll("[data-close-vouchers-modal]").forEach(function (btn) {
+    btn.addEventListener("click", function (event) {
+      event.preventDefault();
+      closeDialog(vouchersModal);
+    });
+  });
   modal.addEventListener("click", function (event) {
     if (event.target === modal) closeModal();
   });
+  if (vouchersModal) {
+    vouchersModal.addEventListener("click", function (event) {
+      if (event.target === vouchersModal) closeDialog(vouchersModal);
+    });
+  }
   if (methodSelect) methodSelect.addEventListener("change", syncMethodFields);
 
   syncMethodFields();

@@ -4,9 +4,7 @@
 {% block header_kicker %}Fees{% endblock %}
 {% block header_title %}Students fees{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:dashboard' %}" class="btn-ghost">← Dashboard</a>
-<a href="{% url 'billing:school_accounts' %}" class="btn-ghost">All school accounts</a>
+{% block sidebar_page_nav %}
 {% endblock %}
 
 {% block content %}
@@ -113,7 +111,7 @@
     <p class="sa-empty-copy">
       Register a school account and set its category to Student fees to see it here.
     </p>
-    <a href="{% url 'billing:school_accounts' %}" class="btn-primary">Go to school accounts</a>
+    <p class="text-sm text-ink-600">Open <strong>School accounts</strong> in the sidebar to register fee accounts.</p>
   </div>
   {% endif %}
 </section>

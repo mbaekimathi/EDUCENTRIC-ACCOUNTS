@@ -4,9 +4,11 @@
 {% block header_kicker %}Students fees{% endblock %}
 {% block header_title %}Fee structure{% endblock %}
 
-{% block header_actions %}
-<a href="{% url 'billing:student_fees_account_levels' account.id %}" class="btn-ghost">← Levels</a>
-<button type="button" class="btn-primary" data-open-structure-modal data-mode="create">+ Register structure</button>
+{% block sidebar_page_nav %}
+<p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Fees</p>
+{% url 'billing:student_fees_fee_structure' account.id as fee_structure_href %}
+{% include "components/sidebar_page_link.html" with href=fee_structure_href label="Fee structure" is_active=True %}
+{% include "components/sidebar_page_link.html" with href=fee_votes_url label="Fee votes" %}
 {% endblock %}
 
 {% block content %}
@@ -17,11 +19,6 @@
     <p class="sa-hero-copy">
       Register session fee structures from this account’s votes. Edit amounts, apply to learners, archive, or delete.
     </p>
-  </div>
-  <div class="sa-hero__body flex justify-end">
-    <button type="button" class="btn-primary sa-hero-cta" data-open-structure-modal data-mode="create">
-      Register structure
-    </button>
   </div>
 </section>
 
@@ -41,13 +38,54 @@
   </article>
 </section>
 
+{% if not votes %}
 <section class="sa-section">
+  <div class="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-4 text-sm text-amber-950" role="status">
+    <p class="font-semibold">Step 1 of 2 — Create fee votes first</p>
+    <p class="mt-1">
+      A fee structure is built from approved vote heads. Register and approve votes on this account before you can create a structure.
+    </p>
+    <ol class="mt-3 list-decimal space-y-1 pl-5 text-ink-800">
+      <li><strong>Fee votes</strong> — register vote heads (Tuition, Boarding, etc.)</li>
+      <li><strong>Fee structure</strong> — set amounts per vote and apply to levels</li>
+    </ol>
+    <a href="{{ fee_votes_url }}" class="btn-primary btn-compact mt-4 inline-flex">Go to Fee votes</a>
+  </div>
+</section>
+{% elif not structure_rows or auto_open_structure %}
+<section class="sa-section">
+  <div id="fee-structure-setup-banner" class="rounded-2xl border border-brand/30 bg-brand/5 px-4 py-4 text-sm text-ink-800" role="status">
+    <p class="font-semibold text-ink-950">Step 2 of 2 — Create a fee structure</p>
+    <p class="mt-1">
+      Votes are ready ({{ votes|length }}). Register a structure to set amounts for this session, then apply it to learners.
+    </p>
+    <button type="button" class="btn-primary btn-compact mt-4" data-open-structure-modal data-mode="create">Register structure</button>
+  </div>
+</section>
+{% endif %}
+
+{% if highlight_fee_vouchers %}
+<section class="sa-section">
+  <div id="fee-vouchers-setup-banner" class="rounded-2xl border border-brand/30 bg-brand/5 px-4 py-4 text-sm text-ink-800">
+    <p class="font-semibold text-ink-950">Post fee vouchers to learners</p>
+    <p class="mt-1">
+      Use <strong>Apply</strong> on an active fee structure below. That posts fee vouchers (charges) to every learner on the selected levels.
+    </p>
+  </div>
+</section>
+{% endif %}
+
+<section class="sa-section" id="fee-structure-list">
   <div class="sa-section-head">
     <div>
       <h3 class="sa-section-title">Registered structures</h3>
       <p class="sa-section-copy">Manage each structure — edit, apply charges, archive, or delete</p>
     </div>
+    {% if votes %}
     <button type="button" class="btn-ghost btn-compact" data-open-structure-modal data-mode="create">Register structure</button>
+    {% else %}
+    <a href="{{ fee_votes_url }}" class="btn-ghost btn-compact">Create votes first</a>
+    {% endif %}
   </div>
 
   {% if structure_rows %}
@@ -147,10 +185,17 @@
   <div class="sa-empty">
     <div class="sa-empty-mark" aria-hidden="true">S</div>
     <h4 class="sa-empty-title">No fee structures yet</h4>
+    {% if votes %}
     <p class="sa-empty-copy">
       Create a structure for the current session. It will post each vote amount to every learner on the selected levels.
     </p>
     <button type="button" class="btn-primary" data-open-structure-modal data-mode="create">Register structure</button>
+    {% else %}
+    <p class="sa-empty-copy">
+      First create fee votes for this account, then return here to register a structure.
+    </p>
+    <a href="{{ fee_votes_url }}" class="btn-primary">Go to Fee votes</a>
+    {% endif %}
   </div>
   {% endif %}
 </section>
@@ -246,11 +291,11 @@
           <p id="structure-fee-total" class="font-display text-2xl font-semibold text-ink-950">KES 0.00</p>
         </div>
         {% else %}
-        <p class="rounded-lg border border-dashed border-ink-200 px-3 py-2 text-sm text-ink-500">
-          No approved votes on this account yet.
-          <a href="{% url 'billing:school_account_detail' account.id %}" class="font-semibold text-brand">Register votes</a>
-          first.
-        </p>
+        <div class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-950">
+          <p class="font-semibold">No approved votes yet</p>
+          <p class="mt-1">Create fee votes first, then come back to set structure amounts.</p>
+          <a href="{{ fee_votes_url }}" class="btn-primary btn-compact mt-3 inline-flex">Go to Fee votes</a>
+        </div>
         {% endif %}
       </fieldset>
 
@@ -262,7 +307,7 @@
 
     <div class="account-modal-actions">
       <button type="button" class="btn-ghost" data-close-structure-modal>Cancel</button>
-      <button type="submit" class="btn-primary" id="structure-submit">Save structure</button>
+      <button type="submit" class="btn-primary" id="structure-submit" {% if not votes %}disabled title="Create fee votes first"{% endif %}>Save structure</button>
     </div>
   </form>
 </dialog>
@@ -290,7 +335,8 @@
     vote_amounts: {{ vote_amounts_json|safe }}
   };
   var selectedTerm = defaultForm.financial_term_id || "";
-  var shouldOpen = {{ open_structure_modal|yesno:"true,false" }};
+  var shouldOpen = {{ open_structure_modal|yesno:"true,false" }} || {{ auto_open_structure|yesno:"true,false" }};
+  var highlightVouchers = {{ highlight_fee_vouchers|yesno:"true,false" }};
   var editingId = {{ editing_structure_id|default:"null" }};
   var readyAt = 0;
 
@@ -447,6 +493,21 @@
   updateFeeTotal();
   if (shouldOpen) {
     openModal(editingId ? "edit" : "create", editingId);
+  }
+  if (highlightVouchers) {
+    var listSection = document.getElementById("fee-structure-list");
+    var banner = document.getElementById("fee-vouchers-setup-banner");
+    window.setTimeout(function () {
+      if (banner) banner.scrollIntoView({ behavior: "smooth", block: "start" });
+      else if (listSection) listSection.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 120);
+  } else if (shouldOpen && !editingId) {
+    var structureBanner = document.getElementById("fee-structure-setup-banner");
+    if (structureBanner) {
+      window.setTimeout(function () {
+        structureBanner.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 120);
+    }
   }
 })();
 </script>

@@ -33,8 +33,20 @@
   <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">LPO</span>
 </a>
 
+{% if request.resolver_match.url_name == 'store_register_item' %}
+<button type="button"
+        class="app-nav-link app-nav-button is-active"
+        data-open-item-modal
+        :title="sidebarCollapsed ? 'Register item' : null">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <rect x="4" y="5" width="16" height="14" rx="2"/>
+    <path d="M8 9h8M8 13h5M16.5 16.5v3M15 18h3" stroke-linecap="round"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Register item</span>
+</button>
+{% else %}
 <a href="{% url 'billing:store_register_item' %}"
-   class="app-nav-link {% if request.resolver_match.url_name == 'store_register_item' %}is-active{% endif %}"
+   class="app-nav-link"
    :title="sidebarCollapsed ? 'Register item' : null"
    @click="sidebarOpen = false">
   <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
@@ -43,6 +55,7 @@
   </svg>
   <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Register item</span>
 </a>
+{% endif %}
 
 <a href="{% url 'billing:store_stock_in_out' %}"
    class="app-nav-link {% if request.resolver_match.url_name == 'store_stock_in_out' %}is-active{% endif %}"
