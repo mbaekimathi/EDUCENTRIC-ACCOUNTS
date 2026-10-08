@@ -5,6 +5,16 @@
 {% block header_title %}{{ supplier.name }}{% endblock %}
 
 {% block sidebar_page_nav %}
+<p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Supplier</p>
+{% url 'billing:supplier_accounts' as suppliers_href %}
+{% include "components/sidebar_page_link.html" with href=suppliers_href label="Back to suppliers" %}
+<button type="button" class="app-nav-link app-nav-button" data-open-invoice-modal :title="sidebarCollapsed ? 'Register invoice' : null">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <path d="M7 3.5h10a1 1 0 0 1 1 1V20l-2-1.2L14 20l-2-1.2L10 20l-2-1.2L6 20V4.5a1 1 0 0 1 1-1Z" stroke-linejoin="round"/>
+    <path d="M9 8h6M9 12h4" stroke-linecap="round"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Register invoice</span>
+</button>
 {% endblock %}
 
 {% block content %}
@@ -12,19 +22,25 @@
   <div class="sa-hero__banner">
     <p class="sa-hero-kicker">Supplier account</p>
     <h2 class="sa-hero-title">{{ supplier.name }}</h2>
-    <p class="sa-hero-copy">{{ supplier.phone_number }} · Pay deliveries from a school account</p>
+    <p class="sa-hero-copy">{{ supplier.phone_number }} · Register purchase invoices and pay deliveries</p>
+  </div>
+  <div class="sa-hero__body">
+    <div class="sad-tools">
+      <button type="button" class="btn-primary btn-compact" data-open-invoice-modal>Register purchase invoice</button>
+    </div>
   </div>
 </section>
 
 <section class="sa-section">
   <div class="sa-section-head">
     <div>
-      <h3 class="sa-section-title">Deliveries to pay</h3>
-      <p class="sa-section-copy">Stock-in receipts linked to this supplier</p>
+      <h3 class="sa-section-title">Awaiting purchase invoice</h3>
+      <p class="sa-section-copy">Deliveries that still need an invoice amount registered</p>
     </div>
+    <button type="button" class="btn-ghost btn-compact" data-open-invoice-modal>Register invoice</button>
   </div>
 
-  {% if payable_movements %}
+  {% if awaiting_invoice %}
   <div class="sa-table-wrap">
     <table class="sa-table">
       <thead>
@@ -32,14 +48,12 @@
           <th>Delivery</th>
           <th>Item</th>
           <th>Qty</th>
-          <th>Invoice</th>
-          <th>Outstanding</th>
           <th>Status</th>
           <th></th>
         </tr>
       </thead>
       <tbody>
-        {% for movement in payable_movements %}
+        {% for movement in awaiting_invoice %}
         <tr>
           <td>
             <p class="sa-table-primary font-mono text-sm">{{ movement.reference_code }}</p>
@@ -50,10 +64,96 @@
             <p class="sa-table-secondary">{{ movement.item.expense_category.name }}</p>
           </td>
           <td>{{ movement.quantity|floatformat:"-2" }} {{ movement.item.get_measure_display }}</td>
-          <td>{% if movement.invoice_amount %}KES {{ movement.invoice_amount|floatformat:2 }}{% else %}—{% endif %}</td>
-          <td class="is-brand">
-            {% if movement.invoice_amount %}KES {{ movement.outstanding_display|floatformat:2 }}{% else %}Set on pay{% endif %}
+          <td><span class="sa-badge is-pending">{{ movement.get_payment_status_display }}</span></td>
+          <td>
+            <button
+              type="button"
+              class="btn-primary btn-compact"
+              data-open-invoice-modal
+              data-movement-id="{{ movement.id }}"
+              data-item-name="{{ movement.item.name }}"
+              data-delivery-ref="{{ movement.reference_code }}"
+            >
+              Register invoice
+            </button>
           </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="sa-empty">
+    <div class="sa-empty-mark" aria-hidden="true">✓</div>
+    <h4 class="sa-empty-title">No deliveries awaiting invoice</h4>
+    <p class="sa-empty-copy">All open deliveries for this supplier already have a purchase invoice registered.</p>
+  </div>
+  {% endif %}
+</section>
+
+<section class="sa-section">
+  <div class="sa-section-head">
+    <div>
+      <h3 class="sa-section-title">Registered invoices to pay</h3>
+      <p class="sa-section-copy">Purchase invoices and delivery invoices ready for payment</p>
+    </div>
+  </div>
+
+  {% if purchase_invoices or ready_to_pay %}
+  <div class="sa-table-wrap">
+    <table class="sa-table">
+      <thead>
+        <tr>
+          <th>Reference</th>
+          <th>Particulars</th>
+          <th>Invoice</th>
+          <th>Outstanding</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for invoice in purchase_invoices %}
+        <tr>
+          <td>
+            <p class="sa-table-primary font-mono text-sm">{{ invoice.reference_code }}</p>
+            <p class="sa-table-secondary">{{ invoice.created_at|date:"d M Y, H:i" }}</p>
+          </td>
+          <td>
+            <p class="sa-table-primary">Invoice {{ invoice.invoice_number }}</p>
+            <p class="sa-table-secondary">{% if invoice.description %}{{ invoice.description }}{% else %}Purchase invoice{% endif %}</p>
+          </td>
+          <td class="is-brand">KES {{ invoice.amount|floatformat:2 }}</td>
+          <td class="is-brand">KES {{ invoice.amount_outstanding|floatformat:2 }}</td>
+          <td><span class="sa-badge is-pending">{{ invoice.get_status_display }}</span></td>
+          <td>
+            <button
+              type="button"
+              class="btn-primary btn-compact"
+              data-open-pay-modal
+              data-purchase-invoice-id="{{ invoice.id }}"
+              data-item-name="Invoice {{ invoice.invoice_number }}"
+              data-needs-invoice="0"
+              data-outstanding="{{ invoice.amount_outstanding|floatformat:2 }}"
+              data-invoice="{{ invoice.amount|floatformat:2 }}"
+            >
+              Pay
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+        {% for movement in ready_to_pay %}
+        <tr>
+          <td>
+            <p class="sa-table-primary font-mono text-sm">{{ movement.reference_code }}</p>
+            <p class="sa-table-secondary">{{ movement.created_at|date:"d M Y, H:i" }}</p>
+          </td>
+          <td>
+            <p class="sa-table-primary">{{ movement.item.name }}</p>
+            <p class="sa-table-secondary">{{ movement.item.expense_category.name }} · {{ movement.quantity|floatformat:"-2" }} {{ movement.item.get_measure_display }}</p>
+          </td>
+          <td class="is-brand">KES {{ movement.invoice_amount|floatformat:2 }}</td>
+          <td class="is-brand">KES {{ movement.outstanding_display|floatformat:2 }}</td>
           <td><span class="sa-badge is-pending">{{ movement.get_payment_status_display }}</span></td>
           <td>
             <button
@@ -62,9 +162,9 @@
               data-open-pay-modal
               data-movement-id="{{ movement.id }}"
               data-item-name="{{ movement.item.name }}"
-              data-needs-invoice="{% if movement.invoice_amount %}0{% else %}1{% endif %}"
-              data-outstanding="{% if movement.outstanding_display %}{{ movement.outstanding_display|floatformat:2 }}{% endif %}"
-              data-invoice="{% if movement.invoice_amount %}{{ movement.invoice_amount|floatformat:2 }}{% endif %}"
+              data-needs-invoice="0"
+              data-outstanding="{{ movement.outstanding_display|floatformat:2 }}"
+              data-invoice="{{ movement.invoice_amount|floatformat:2 }}"
             >
               Pay
             </button>
@@ -76,9 +176,9 @@
   </div>
   {% else %}
   <div class="sa-empty">
-    <div class="sa-empty-mark" aria-hidden="true">✓</div>
-    <h4 class="sa-empty-title">Nothing to pay</h4>
-    <p class="sa-empty-copy">All deliveries for this supplier are paid or none are recorded yet.</p>
+    <div class="sa-empty-mark" aria-hidden="true">I</div>
+    <h4 class="sa-empty-title">No invoices ready to pay</h4>
+    <p class="sa-empty-copy">Register a purchase invoice from Supplier accounts, or against a delivery here.</p>
   </div>
   {% endif %}
 </section>
@@ -107,7 +207,13 @@
             <p class="sa-table-primary font-mono text-sm">{{ payment.reference_code }}</p>
             <p class="sa-table-secondary">{{ payment.reference_number }}</p>
           </td>
-          <td>{{ payment.movement.item.name }}</td>
+          <td>
+            {% if payment.purchase_invoice_id %}
+            Invoice {{ payment.purchase_invoice.invoice_number }}
+            {% else %}
+            {{ payment.movement.item.name }}
+            {% endif %}
+          </td>
           <td>{{ payment.account.name }}</td>
           <td>{{ payment.get_method_display }}</td>
           <td class="is-brand">KES {{ payment.amount|floatformat:2 }}</td>
@@ -120,10 +226,63 @@
 </section>
 {% endif %}
 
+<dialog id="invoice-modal" class="account-modal" {% if open_invoice_modal %}open{% endif %}>
+  <form method="post" class="account-modal-card" id="invoice-form" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="action" value="register_invoice">
+
+    <div class="account-modal-head">
+      <div>
+        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-400">{{ supplier.name }}</p>
+        <h3 class="font-display text-2xl font-semibold text-ink-950">Register purchase invoice</h3>
+      </div>
+      <button type="button" class="account-modal-close" data-close-invoice-modal aria-label="Close">×</button>
+    </div>
+
+    <div class="account-modal-body space-y-4">
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Delivery *</span>
+        <select name="movement_id" id="invoice-movement-select" required class="field-input">
+          <option value="">Select delivery</option>
+          {% for movement in awaiting_invoice %}
+          <option
+            value="{{ movement.id }}"
+            data-item-name="{{ movement.item.name }}"
+            {% if invoice_form.movement_id == movement.id|stringformat:"s" %}selected{% endif %}
+          >
+            {{ movement.reference_code }} · {{ movement.item.name }} · {{ movement.quantity|floatformat:"-2" }} {{ movement.item.get_measure_display }}
+          </option>
+          {% endfor %}
+        </select>
+        <p class="mt-1.5 text-xs text-ink-400" id="invoice-item-hint">
+          {% if invoice_form.item_label %}Item: {{ invoice_form.item_label }}{% else %}Choose the stock-in delivery this invoice covers.{% endif %}
+        </p>
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Invoice amount (KES) *</span>
+        <input type="number" name="invoice_amount" id="invoice-amount" required min="0.01" step="0.01" value="{{ invoice_form.invoice_amount }}" class="field-input" placeholder="0.00">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Supplier invoice number</span>
+        <input type="text" name="invoice_number" id="invoice-number" maxlength="120" value="{{ invoice_form.invoice_number }}" class="field-input" data-uppercase placeholder="e.g. INV-1042" autocomplete="off">
+      </label>
+    </div>
+
+    <div class="account-modal-actions">
+      <button type="button" class="btn-ghost" data-close-invoice-modal>Cancel</button>
+      <button type="submit" class="btn-primary" {% if not awaiting_invoice %}disabled{% endif %}>Register invoice</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="pay-modal" class="account-modal" {% if open_pay_modal %}open{% endif %}>
   <form method="post" class="account-modal-card" id="pay-form" novalidate>
     {% csrf_token %}
+    <input type="hidden" name="action" value="pay">
     <input type="hidden" name="movement_id" id="pay-movement-id" value="{{ pay_form.movement_id }}">
+    <input type="hidden" name="purchase_invoice_id" id="pay-purchase-invoice-id" value="{{ pay_form.purchase_invoice_id }}">
 
     <div class="account-modal-head">
       <div>
@@ -185,54 +344,106 @@
 
 <script>
 (function () {
-  var modal = document.getElementById("pay-modal");
-  if (!modal) return;
+  function wireModal(modal, openSelector, closeSelector, onOpen) {
+    if (!modal) return;
+    function openModal() {
+      if (typeof modal.showModal === "function") {
+        if (!modal.open) modal.showModal();
+      } else {
+        modal.setAttribute("open", "open");
+      }
+    }
+    function closeModal() {
+      if (typeof modal.close === "function") {
+        if (modal.open) modal.close();
+      } else {
+        modal.removeAttribute("open");
+      }
+    }
+    document.querySelectorAll(openSelector).forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (typeof onOpen === "function") onOpen(btn);
+        openModal();
+      });
+    });
+    document.querySelectorAll(closeSelector).forEach(function (btn) {
+      btn.addEventListener("click", closeModal);
+    });
+    modal.addEventListener("click", function (event) {
+      if (event.target === modal) closeModal();
+    });
+    return { openModal: openModal, closeModal: closeModal };
+  }
+
+  var invoiceModal = document.getElementById("invoice-modal");
+  var invoiceSelect = document.getElementById("invoice-movement-select");
+  var invoiceHint = document.getElementById("invoice-item-hint");
+  var invoiceAmount = document.getElementById("invoice-amount");
+
+  function syncInvoiceSelect(movementId, itemName) {
+    if (invoiceSelect) {
+      invoiceSelect.value = movementId || "";
+    }
+    if (invoiceHint) {
+      invoiceHint.textContent = itemName
+        ? ("Item: " + itemName)
+        : "Choose the stock-in delivery this invoice covers.";
+    }
+  }
+
+  if (invoiceSelect) {
+    invoiceSelect.addEventListener("change", function () {
+      var option = invoiceSelect.options[invoiceSelect.selectedIndex];
+      var itemName = option ? option.getAttribute("data-item-name") : "";
+      syncInvoiceSelect(invoiceSelect.value, itemName);
+    });
+  }
+
+  var invoiceControls = wireModal(
+    invoiceModal,
+    "[data-open-invoice-modal]",
+    "[data-close-invoice-modal]",
+    function (btn) {
+      var selectedId = btn.getAttribute("data-movement-id") || "";
+      var itemName = btn.getAttribute("data-item-name") || "";
+      syncInvoiceSelect(selectedId, itemName);
+      if (!selectedId && invoiceAmount) invoiceAmount.value = "";
+    }
+  );
+
+  var payModal = document.getElementById("pay-modal");
   var movementId = document.getElementById("pay-movement-id");
+  var purchaseInvoiceId = document.getElementById("pay-purchase-invoice-id");
   var title = document.getElementById("pay-item-title");
   var invoiceWrap = document.getElementById("pay-invoice-wrap");
-  var invoiceAmount = document.getElementById("pay-invoice-amount");
+  var payInvoiceAmount = document.getElementById("pay-invoice-amount");
   var payAmount = document.getElementById("pay-amount");
 
-  function openModal() {
-    if (typeof modal.showModal === "function") {
-      if (!modal.open) modal.showModal();
-    } else {
-      modal.setAttribute("open", "open");
+  wireModal(
+    payModal,
+    "[data-open-pay-modal]",
+    "[data-close-pay-modal]",
+    function (btn) {
+      movementId.value = btn.getAttribute("data-movement-id") || "";
+      if (purchaseInvoiceId) {
+        purchaseInvoiceId.value = btn.getAttribute("data-purchase-invoice-id") || "";
+      }
+      title.textContent = btn.getAttribute("data-item-name") || "Pay delivery";
+      var needsInvoice = btn.getAttribute("data-needs-invoice") === "1";
+      invoiceWrap.hidden = !needsInvoice;
+      if (payInvoiceAmount) {
+        payInvoiceAmount.required = needsInvoice;
+        payInvoiceAmount.value = needsInvoice ? "" : (btn.getAttribute("data-invoice") || "");
+      }
+      payAmount.value = btn.getAttribute("data-outstanding") || "";
     }
-  }
-  function closeModal() {
-    if (typeof modal.close === "function") {
-      if (modal.open) modal.close();
-    } else {
-      modal.removeAttribute("open");
-    }
-  }
-  function fillPay(btn) {
-    movementId.value = btn.getAttribute("data-movement-id") || "";
-    title.textContent = btn.getAttribute("data-item-name") || "Pay delivery";
-    var needsInvoice = btn.getAttribute("data-needs-invoice") === "1";
-    invoiceWrap.hidden = !needsInvoice;
-    if (invoiceAmount) {
-      invoiceAmount.required = needsInvoice;
-      invoiceAmount.value = needsInvoice ? "" : (btn.getAttribute("data-invoice") || "");
-    }
-    var outstanding = btn.getAttribute("data-outstanding") || "";
-    payAmount.value = outstanding;
-  }
-  document.querySelectorAll("[data-open-pay-modal]").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      fillPay(btn);
-      openModal();
-    });
-  });
-  document.querySelectorAll("[data-close-pay-modal]").forEach(function (btn) {
-    btn.addEventListener("click", closeModal);
-  });
-  modal.addEventListener("click", function (event) {
-    if (event.target === modal) closeModal();
-  });
+  );
+
+  {% if open_invoice_modal %}
+  if (invoiceControls) invoiceControls.openModal();
+  {% endif %}
   {% if open_pay_modal %}
-  openModal();
+  if (payModal && typeof payModal.showModal === "function" && !payModal.open) payModal.showModal();
   {% endif %}
 })();
 </script>

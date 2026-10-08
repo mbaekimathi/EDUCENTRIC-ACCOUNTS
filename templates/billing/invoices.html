@@ -12,7 +12,7 @@
   <div class="sa-hero__banner">
     <p class="sa-hero-kicker">Collections</p>
     <h2 class="sa-hero-title">Billing and invoices</h2>
-    <p class="sa-hero-copy">Invoice-style fee charges, payment receipts, and supplier accounts.</p>
+    <p class="sa-hero-copy">Fee charges, payment receipts, and other billing activity.</p>
   </div>
 </section>
 
@@ -20,28 +20,25 @@
   <article class="sa-stat">
     <p class="sa-stat-label">Invoices</p>
     <p class="sa-stat-value">{{ invoice_count }}</p>
+    <p class="sa-stat-meta">Fee charges posted</p>
   </article>
   <article class="sa-stat">
     <p class="sa-stat-label">Receipts</p>
     <p class="sa-stat-value">{{ payment_count }}</p>
+    <p class="sa-stat-meta">Payments recorded</p>
   </article>
   <article class="sa-stat">
     <p class="sa-stat-label">Collected</p>
     <p class="sa-stat-value is-brand">KES {{ payments_total|floatformat:2 }}</p>
+    <p class="sa-stat-meta">All payment methods</p>
   </article>
-</section>
-
-<section class="overflow-hidden rounded-[1.5rem] border border-ink-950/8 bg-white/90 shadow-panel backdrop-blur mb-5">
-  <header class="border-b border-ink-950/8 px-5 py-4 sm:px-6">
-    <h3 class="font-display text-xl font-semibold text-ink-950">Suppliers</h3>
-    <p class="mt-0.5 text-sm text-ink-600">Pay store deliveries from school accounts · {{ supplier_count }} on file</p>
-  </header>
 </section>
 
 <section class="grid gap-5 lg:grid-cols-2">
   <article class="sa-list-panel">
     <div class="sa-list-panel-head">
       <h3 class="sa-list-panel-title">Recent invoices</h3>
+      <p class="sa-section-copy">Latest fee charges posted to learner ledgers</p>
     </div>
     <ul>
       {% for c in charges %}
@@ -64,6 +61,7 @@
   <article class="sa-list-panel">
     <div class="sa-list-panel-head">
       <h3 class="sa-list-panel-title">Recent receipts</h3>
+      <p class="sa-section-copy">Latest payments collected from parents and learners</p>
     </div>
     <ul>
       {% for p in payments %}

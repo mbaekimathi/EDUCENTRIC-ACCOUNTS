@@ -5,23 +5,38 @@
 {% block header_title %}Supplier accounts{% endblock %}
 
 {% block sidebar_page_nav %}
+<p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Suppliers</p>
+<button type="button" class="app-nav-link app-nav-button" data-open-supplier-modal :title="sidebarCollapsed ? 'Register supplier' : null">
+  <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <circle cx="9" cy="8" r="3"/>
+    <path d="M4 19a5 5 0 0 1 10 0" stroke-linecap="round"/>
+    <path d="M16 8h6M19 5v6" stroke-linecap="round"/>
+  </svg>
+  <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Register supplier</span>
+</button>
 {% endblock %}
 
 {% block content %}
-<section class="sa-hero has-banner anim-rise">
+<section class="sa-hero has-banner">
   <div class="sa-hero__banner">
     <p class="sa-hero-kicker">Payables</p>
     <h2 class="sa-hero-title">Supplier accounts</h2>
-    <p class="sa-hero-copy">Open a supplier to pay for store deliveries recorded at stock in.</p>
+    <p class="sa-hero-copy">Register a supplier with their purchase invoice, then open the account to pay.</p>
+  </div>
+  <div class="sa-hero__body">
+    <div class="sad-tools">
+      <button type="button" class="btn-primary btn-compact" data-open-supplier-modal>Register supplier</button>
+    </div>
   </div>
 </section>
 
 <section class="sa-section">
   <div class="sa-section-head">
     <div>
-      <h3 class="sa-section-title">Registered suppliers</h3>
-      <p class="sa-section-copy">Click a supplier to view deliveries awaiting payment</p>
+      <h3 class="sa-section-title">All suppliers</h3>
+      <p class="sa-section-copy">Purchase invoices and store deliveries awaiting payment</p>
     </div>
+    <button type="button" class="btn-ghost btn-compact" data-open-supplier-modal>Register supplier</button>
   </div>
 
   {% if suppliers %}
@@ -31,24 +46,27 @@
         <tr>
           <th>Supplier</th>
           <th>Phone</th>
-          <th>Pending deliveries</th>
           <th>Outstanding</th>
           <th></th>
         </tr>
       </thead>
       <tbody>
         {% for row in suppliers %}
-        <tr>
+        <tr class="{% if not row.supplier.is_active %}is-muted-row{% endif %}">
           <td>
             <p class="sa-table-primary">{{ row.supplier.name }}</p>
+            {% if not row.supplier.is_active %}
+            <p class="sa-table-secondary">Inactive</p>
+            {% elif row.pending_count %}
+            <p class="sa-table-secondary">{{ row.pending_count }} open payable{{ row.pending_count|pluralize }}</p>
+            {% endif %}
           </td>
           <td>{{ row.supplier.phone_number }}</td>
-          <td>{{ row.pending_count }}</td>
-          <td class="is-brand">
+          <td class="is-brand sa-balance-cell">
             {% if row.outstanding > 0 %}KES {{ row.outstanding|floatformat:2 }}{% else %}—{% endif %}
           </td>
           <td>
-            <a href="{% url 'billing:supplier_account_detail' row.supplier.id %}" class="btn-ghost btn-compact">Open account</a>
+            <a href="{% url 'billing:supplier_account_detail' row.supplier.id %}" class="btn-primary btn-compact">View</a>
           </td>
         </tr>
         {% endfor %}
@@ -59,8 +77,101 @@
   <div class="sa-empty">
     <div class="sa-empty-mark" aria-hidden="true">S</div>
     <h4 class="sa-empty-title">No suppliers yet</h4>
-    <p class="sa-empty-copy">Suppliers are registered when you record stock in at the store.</p>
+    <p class="sa-empty-copy">Register a supplier with their purchase invoice to get started.</p>
+    <button type="button" class="btn-primary btn-compact mt-3" data-open-supplier-modal>Register supplier</button>
   </div>
   {% endif %}
 </section>
+
+<dialog id="supplier-modal" class="account-modal" {% if open_supplier_modal %}open{% endif %}>
+  <form method="post" class="account-modal-card" novalidate>
+    {% csrf_token %}
+
+    <div class="account-modal-head">
+      <div>
+        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-400">Supplier accounts</p>
+        <h3 class="font-display text-2xl font-semibold text-ink-950">Register supplier</h3>
+      </div>
+      <button type="button" class="account-modal-close" data-close-supplier-modal aria-label="Close">×</button>
+    </div>
+
+    <div class="account-modal-body space-y-4">
+      <p class="rounded-lg border border-dashed border-ink-200 bg-ink-50/60 px-3 py-2 text-sm text-ink-600">
+        Create the supplier and register their purchase invoice in one step.
+      </p>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Supplier name *</span>
+        <input type="text" name="name" required maxlength="160" value="{{ supplier_form.name }}" class="field-input" data-uppercase placeholder="e.g. Acme Supplies Ltd" autocomplete="organization">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Phone number *</span>
+        <input type="tel" name="phone_number" required maxlength="24" value="{{ supplier_form.phone_number }}" class="field-input" placeholder="07XXXXXXXX" autocomplete="tel">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Invoice number *</span>
+        <input type="text" name="invoice_number" required maxlength="120" value="{{ supplier_form.invoice_number }}" class="field-input" data-uppercase placeholder="e.g. INV-1042" autocomplete="off">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Invoice amount (KES) *</span>
+        <input type="number" name="invoice_amount" required min="0.01" step="0.01" value="{{ supplier_form.invoice_amount }}" class="field-input" placeholder="0.00">
+      </label>
+
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Description</span>
+        <input type="text" name="description" maxlength="255" value="{{ supplier_form.description }}" class="field-input" placeholder="e.g. Stationery for term 2">
+      </label>
+    </div>
+
+    <div class="account-modal-actions">
+      <button type="button" class="btn-ghost" data-close-supplier-modal>Cancel</button>
+      <button type="submit" class="btn-primary">Save supplier & invoice</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(function () {
+  var modal = document.getElementById("supplier-modal");
+  if (!modal) return;
+
+  function openModal() {
+    if (typeof modal.showModal === "function") {
+      if (!modal.open) modal.showModal();
+    } else {
+      modal.setAttribute("open", "open");
+    }
+  }
+  function closeModal() {
+    if (typeof modal.close === "function") {
+      if (modal.open) modal.close();
+    } else {
+      modal.removeAttribute("open");
+    }
+  }
+
+  document.querySelectorAll("[data-open-supplier-modal]").forEach(function (btn) {
+    btn.addEventListener("click", function (event) {
+      event.preventDefault();
+      openModal();
+    });
+  });
+  document.querySelectorAll("[data-close-supplier-modal]").forEach(function (btn) {
+    btn.addEventListener("click", function (event) {
+      event.preventDefault();
+      closeModal();
+    });
+  });
+  modal.addEventListener("click", function (event) {
+    if (event.target === modal) closeModal();
+  });
+
+  {% if open_supplier_modal %}
+  openModal();
+  {% endif %}
+})();
+</script>
 {% endblock %}

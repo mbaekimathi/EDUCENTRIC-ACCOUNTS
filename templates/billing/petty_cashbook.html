@@ -13,29 +13,16 @@
     <p class="sa-hero-kicker">Cash desk</p>
     <h2 class="sa-hero-title">Petty cashbook accounts</h2>
     <p class="sa-hero-copy">
-      Track petty cash floats, top-ups, and withdrawals for each registered account.
+      Open an account to review its float, top-ups, and withdrawals.
     </p>
   </div>
-</section>
-
-<section class="sa-stats">
-  <article class="sa-stat">
-    <p class="sa-stat-label">Available balance</p>
-    <p class="sa-stat-value is-brand">KES {{ total_balance|floatformat:2 }}</p>
-    <p class="sa-stat-meta">Approved top-ups minus withdrawals</p>
-  </article>
-  <article class="sa-stat">
-    <p class="sa-stat-label">Active accounts</p>
-    <p class="sa-stat-value">{{ active_count }}</p>
-    <p class="sa-stat-meta">{{ petty_accounts|length }} total in this category</p>
-  </article>
 </section>
 
 <section class="sa-section">
   <div class="sa-section-head">
     <div>
       <h3 class="sa-section-title">Petty cashbook accounts</h3>
-      <p class="sa-section-copy">Only accounts whose category is Petty cashbook</p>
+      <p class="sa-section-copy">Current balance for each petty cashbook account</p>
     </div>
   </div>
 
@@ -45,43 +32,22 @@
       <thead>
         <tr>
           <th>Account</th>
-          <th>Topped up</th>
-          <th>Withdrawn</th>
-          <th>Status</th>
           <th>Balance</th>
-          <th>Actions</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
         {% for row in petty_accounts %}
         <tr class="{% if not row.account.is_active %}is-muted-row{% endif %}">
           <td>
-            <p class="sa-table-primary">
-              <a href="{% url 'billing:petty_cashbook_detail' row.account.id %}" class="sa-account-row-link">{{ row.account.name }}</a>
-            </p>
-            <p class="sa-table-secondary">
-              {% if row.account.description %}{{ row.account.description }}{% else %}No description{% endif %}
-              {% if row.pending_topups %} · {{ row.pending_topups }} pending top-up{{ row.pending_topups|pluralize }}{% endif %}
-            </p>
-          </td>
-          <td>KES {{ row.topped_up|floatformat:2 }}</td>
-          <td>KES {{ row.withdrawn|floatformat:2 }}</td>
-          <td>
-            {% if row.account.is_active %}
-            <span class="sa-badge is-active">Active</span>
-            {% else %}
-            <span class="sa-badge is-suspended">Suspended</span>
+            <p class="sa-table-primary">{{ row.account.name }}</p>
+            {% if row.account.description %}
+            <p class="sa-table-secondary">{{ row.account.description }}</p>
             {% endif %}
           </td>
           <td class="is-brand sa-balance-cell">KES {{ row.balance|floatformat:2 }}</td>
           <td>
-            <div class="flex flex-wrap gap-2">
-              <a href="{% url 'billing:petty_cashbook_detail' row.account.id %}" class="btn-ghost btn-compact">Open</a>
-              {% if row.account.is_active %}
-              <a href="{% url 'billing:petty_cashbook_detail' row.account.id %}?open=topup" class="btn-ghost btn-compact">Top up</a>
-              <a href="{% url 'billing:petty_cashbook_detail' row.account.id %}?open=withdraw" class="btn-primary btn-compact">Withdraw</a>
-              {% endif %}
-            </div>
+            <a href="{% url 'billing:petty_cashbook_detail' row.account.id %}" class="btn-primary btn-compact">View</a>
           </td>
         </tr>
         {% endfor %}
@@ -98,82 +64,5 @@
     <p class="text-sm text-ink-600">Open <strong>School accounts</strong> in the sidebar to set up petty cash accounts.</p>
   </div>
   {% endif %}
-</section>
-
-<section class="sa-section">
-  <div class="sa-section-head">
-    <div>
-      <h3 class="sa-section-title">Recent activity</h3>
-      <p class="sa-section-copy">Latest top-ups and withdrawals across petty cashbook accounts</p>
-    </div>
-  </div>
-
-  <div class="grid gap-6 lg:grid-cols-2">
-    <div class="sa-table-wrap">
-      <table class="sa-table">
-        <thead>
-          <tr>
-            <th colspan="4">Recent top-ups</th>
-          </tr>
-          <tr>
-            <th>Reference</th>
-            <th>Account</th>
-            <th>Amount</th>
-            <th>When</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for topup in recent_topups %}
-          <tr>
-            <td>
-              <p class="sa-table-primary">{{ topup.reference_code }}</p>
-              <p class="sa-table-secondary">{{ topup.reference_number }}</p>
-            </td>
-            <td>{{ topup.account.name }}</td>
-            <td class="is-brand">KES {{ topup.amount|floatformat:2 }}</td>
-            <td>{{ topup.created_at|date:"d M Y, H:i" }}</td>
-          </tr>
-          {% empty %}
-          <tr>
-            <td colspan="4" class="sa-table-empty">No top-ups yet.</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    <div class="sa-table-wrap">
-      <table class="sa-table">
-        <thead>
-          <tr>
-            <th colspan="4">Recent withdrawals</th>
-          </tr>
-          <tr>
-            <th>Reference</th>
-            <th>Account</th>
-            <th>Amount</th>
-            <th>When</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for withdrawal in recent_withdrawals %}
-          <tr>
-            <td>
-              <p class="sa-table-primary">{{ withdrawal.reference_code }}</p>
-              <p class="sa-table-secondary">{{ withdrawal.payee }} · {{ withdrawal.reference_number }}</p>
-            </td>
-            <td>{{ withdrawal.account.name }}</td>
-            <td class="is-accent">KES {{ withdrawal.amount|floatformat:2 }}</td>
-            <td>{{ withdrawal.created_at|date:"d M Y, H:i" }}</td>
-          </tr>
-          {% empty %}
-          <tr>
-            <td colspan="4" class="sa-table-empty">No withdrawals yet.</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
 </section>
 {% endblock %}

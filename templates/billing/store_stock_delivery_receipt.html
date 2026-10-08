@@ -58,8 +58,9 @@
               <tr>
                 <th class="px-4 py-3 font-semibold">Item</th>
                 <th class="px-4 py-3 font-semibold">Category</th>
-                <th class="px-4 py-3 font-semibold">Station</th>
                 <th class="px-4 py-3 font-semibold">Qty</th>
+                <th class="px-4 py-3 font-semibold">Unit price</th>
+                <th class="px-4 py-3 font-semibold">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -67,11 +68,17 @@
                 <td class="px-4 py-3">
                   <p class="font-semibold text-ink-950">{{ movement.item.name }}</p>
                   <p class="mt-0.5 font-mono text-xs text-ink-400">{{ movement.item.reference_code }}</p>
+                  <p class="mt-0.5 text-xs text-ink-400">{{ movement.item.department_station.name }}</p>
                 </td>
                 <td class="px-4 py-3 text-ink-700">{{ movement.item.expense_category.name }}</td>
-                <td class="px-4 py-3 text-ink-700">{{ movement.item.department_station.name }}</td>
                 <td class="px-4 py-3 font-semibold text-ink-950">
                   {{ movement.quantity|floatformat:"-2" }} {{ movement.item.get_measure_display }}
+                </td>
+                <td class="px-4 py-3 text-ink-700">
+                  {% if movement.unit_buying_price %}KES {{ movement.unit_buying_price|floatformat:2 }}{% else %}—{% endif %}
+                </td>
+                <td class="px-4 py-3 font-semibold text-ink-950">
+                  {% if movement.invoice_amount %}KES {{ movement.invoice_amount|floatformat:2 }}{% else %}—{% endif %}
                 </td>
               </tr>
             </tbody>

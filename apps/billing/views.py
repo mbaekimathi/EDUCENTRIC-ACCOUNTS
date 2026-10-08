@@ -55,6 +55,7 @@ from .models import (
     StoreSupplierPayment,
     StkPushRequest,
     StudentPocketMoneyEntry,
+    SupplierPurchaseInvoice,
     allocate_payment_to_charges,
     apply_barter_to_supplier,
     ensure_store_lookups,
@@ -65,6 +66,7 @@ from .models import (
     store_item_quantity_on_hand,
     student_balance,
     student_pocket_money_balance,
+    supplier_open_purchase_invoices,
     supplier_outstanding_balance,
 )
 from .portal_counts import get_portal_counts
@@ -2038,54 +2040,24 @@ def petty_cashbook(request):
                 ),
                 balance_zero,
             ),
-            pending_topups=Count(
-                "top_ups",
-                filter=Q(top_ups__status=AccountTopUp.Status.PENDING),
-            ),
         )
         .order_by("-is_active", "name")
     )
 
-    petty_accounts = []
-    total_balance = Decimal("0.00")
-    active_count = 0
-    for account in accounts_qs:
-        topped_up = account.topped_up or Decimal("0.00")
-        withdrawn = account.withdrawn or Decimal("0.00")
-        balance = topped_up - withdrawn
-        total_balance += balance
-        if account.is_active:
-            active_count += 1
-        petty_accounts.append(
-            {
-                "account": account,
-                "balance": balance,
-                "topped_up": topped_up,
-                "withdrawn": withdrawn,
-                "pending_topups": account.pending_topups or 0,
-            }
-        )
-
-    recent_topups = (
-        AccountTopUp.objects.filter(account__category=SchoolAccount.Category.PETTY_CASHBOOK)
-        .select_related("account")
-        .order_by("-created_at")[:10]
-    )
-    recent_withdrawals = (
-        AccountWithdraw.objects.filter(account__category=SchoolAccount.Category.PETTY_CASHBOOK)
-        .select_related("account")
-        .order_by("-created_at")[:10]
-    )
+    petty_accounts = [
+        {
+            "account": account,
+            "balance": (account.topped_up or Decimal("0.00"))
+            - (account.withdrawn or Decimal("0.00")),
+        }
+        for account in accounts_qs
+    ]
 
     return render(
         request,
         "billing/petty_cashbook.html",
         {
             "petty_accounts": petty_accounts,
-            "total_balance": total_balance,
-            "active_count": active_count,
-            "recent_topups": recent_topups,
-            "recent_withdrawals": recent_withdrawals,
         },
     )
 
@@ -2253,12 +2225,84 @@ def petty_cashbook_detail(request, account_id):
         ).aggregate(total=Sum("amount"))["total"]
         or Decimal("0.00")
     )
-    pending_topups = AccountTopUp.objects.filter(
-        account=account,
-        status=AccountTopUp.Status.PENDING,
-    ).count()
-    topups = AccountTopUp.objects.filter(account=account).order_by("-created_at")
-    withdrawals = AccountWithdraw.objects.filter(account=account).order_by("-created_at")
+
+    topups = list(
+        AccountTopUp.objects.filter(
+            account=account,
+            status=AccountTopUp.Status.APPROVED,
+        )
+        .select_related("created_by")
+        .order_by("created_at", "id")
+    )
+    withdrawals = list(
+        AccountWithdraw.objects.filter(
+            account=account,
+            status=AccountWithdraw.Status.APPROVED,
+        )
+        .select_related("created_by")
+        .order_by("created_at", "id")
+    )
+
+    events = []
+    for topup in topups:
+        events.append(
+            {
+                "kind": "credit",
+                "created_at": topup.created_at,
+                "id": topup.id,
+                "staff_name": (
+                    _staff_display_name(topup.created_by) if topup.created_by_id else "—"
+                ),
+                "particulars": "Top up",
+                "hint": topup.description or topup.reference_number,
+                "method": topup.get_method_display(),
+                "reference_code": topup.reference_code,
+                "reference_number": topup.reference_number,
+                "amount": topup.amount or Decimal("0.00"),
+            }
+        )
+    for withdrawal in withdrawals:
+        events.append(
+            {
+                "kind": "debit",
+                "created_at": withdrawal.created_at,
+                "id": withdrawal.id,
+                "staff_name": (
+                    _staff_display_name(withdrawal.created_by)
+                    if withdrawal.created_by_id
+                    else "—"
+                ),
+                "particulars": f"Withdraw · {withdrawal.payee}",
+                "hint": withdrawal.description or withdrawal.reference_number,
+                "method": withdrawal.get_method_display(),
+                "reference_code": withdrawal.reference_code,
+                "reference_number": withdrawal.reference_number,
+                "amount": withdrawal.amount or Decimal("0.00"),
+            }
+        )
+    events.sort(key=lambda row: (row["created_at"], row["id"]))
+
+    ledger_rows = []
+    running = Decimal("0.00")
+    for event in events:
+        debit = Decimal("0.00")
+        credit = Decimal("0.00")
+        if event["kind"] == "credit":
+            credit = event["amount"]
+            running += credit
+        else:
+            debit = event["amount"]
+            running -= debit
+        ledger_rows.append(
+            {
+                **event,
+                "debit": debit,
+                "credit": credit,
+                "balance": running,
+            }
+        )
+
+    is_balanced = (topped_up - withdrawn) == balance and running == balance
 
     return render(
         request,
@@ -2268,9 +2312,8 @@ def petty_cashbook_detail(request, account_id):
             "balance": balance,
             "topped_up": topped_up,
             "withdrawn": withdrawn,
-            "pending_topups": pending_topups,
-            "topups": topups,
-            "withdrawals": withdrawals,
+            "ledger_rows": ledger_rows,
+            "is_balanced": is_balanced,
             "topup_methods": petty_cashbook_topup_methods(mpesa_enabled),
             "withdraw_methods": AccountWithdraw.Method.choices,
             "topup_form": topup_form,
@@ -2430,6 +2473,7 @@ def store_stock_in_out(request):
         "item_id": "",
         "direction": StoreStockMovement.Direction.IN,
         "quantity": "",
+        "unit_buying_price": "",
         "notes": "",
         "item_name": "",
         "on_hand": "",
@@ -2445,6 +2489,7 @@ def store_stock_in_out(request):
         direction = upper_input(request.POST.get("direction"))
         item_id = (request.POST.get("item_id") or "").strip()
         quantity_raw = (request.POST.get("quantity") or "").strip()
+        unit_buying_price_raw = (request.POST.get("unit_buying_price") or "").strip()
         notes = (request.POST.get("notes") or "").strip()
         supplier_id = (request.POST.get("supplier_id") or "").strip()
         supplier_name = upper_input(request.POST.get("supplier_name"))
@@ -2457,6 +2502,7 @@ def store_stock_in_out(request):
                 "item_id": item_id,
                 "direction": direction,
                 "quantity": quantity_raw,
+                "unit_buying_price": unit_buying_price_raw,
                 "notes": notes,
                 "supplier_id": supplier_id,
                 "supplier_name": supplier_name,
@@ -2469,6 +2515,8 @@ def store_stock_in_out(request):
         error = None
         item = None
         quantity = None
+        unit_buying_price = None
+        invoice_amount = None
         supplier = None
         destination_station = None
         needs_supplier = False
@@ -2496,6 +2544,17 @@ def store_stock_in_out(request):
             out_reason = ""
             if payment_status not in StoreStockMovement.PaymentStatus.values:
                 error = "Select a payment status."
+            if error is None:
+                try:
+                    unit_buying_price = Decimal(unit_buying_price_raw)
+                    if unit_buying_price <= 0:
+                        raise ValueError
+                except Exception:
+                    error = "Enter a buying price greater than zero."
+                else:
+                    invoice_amount = (unit_buying_price * quantity).quantize(
+                        Decimal("0.01")
+                    )
         elif error is None:
             payment_status = ""
             if out_reason not in StoreStockMovement.OutReason.values:
@@ -2578,6 +2637,13 @@ def store_stock_in_out(request):
                         supplier = None
 
                     if not open_stock_modal and (not needs_supplier or supplier is not None):
+                        amount_paid = Decimal("0.00")
+                        if (
+                            direction == StoreStockMovement.Direction.IN
+                            and payment_status == StoreStockMovement.PaymentStatus.PAID
+                            and invoice_amount is not None
+                        ):
+                            amount_paid = invoice_amount
                         movement = StoreStockMovement(
                             item=locked,
                             direction=direction,
@@ -2586,6 +2652,9 @@ def store_stock_in_out(request):
                             payment_status=payment_status,
                             out_reason=out_reason,
                             destination_station=destination_station,
+                            unit_buying_price=unit_buying_price,
+                            invoice_amount=invoice_amount,
+                            amount_paid=amount_paid,
                             notes=notes,
                             created_by=request.user,
                         )
@@ -3111,16 +3180,13 @@ def invoices(request):
         "-received_at"
     )[:40]
     student_ids = {c.student_id for c in charges} | {p.student_id for p in payments}
-    student_map = {
-        s.id: s for s in Student.objects.filter(id__in=student_ids)
-    }
+    student_map = {s.id: s for s in Student.objects.filter(id__in=student_ids)}
     for charge in charges:
         charge.student = student_map.get(charge.student_id)
     for payment in payments:
         payment.student = student_map.get(payment.student_id)
 
     totals = Payment.objects.aggregate(total=Sum("amount"))
-    supplier_count = StoreSupplier.objects.filter(is_active=True).count()
     portal_counts = get_portal_counts()
     return render(
         request,
@@ -3131,22 +3197,109 @@ def invoices(request):
             "payments_total": totals["total"] or Decimal("0.00"),
             "invoice_count": portal_counts["invoice_charge_count"],
             "payment_count": portal_counts["invoice_payment_count"],
-            "supplier_count": supplier_count,
         },
     )
 
 
 @portal_access_required
-@require_GET
+@require_http_methods(["GET", "POST"])
 def supplier_accounts(request):
+    open_supplier_modal = False
+    supplier_form = {
+        "name": "",
+        "phone_number": "",
+        "invoice_number": "",
+        "invoice_amount": "",
+        "description": "",
+    }
+
+    if request.method == "POST":
+        name = upper_input(request.POST.get("name"))
+        phone_number = normalize_supplier_phone(request.POST.get("phone_number"))
+        invoice_number = upper_input(request.POST.get("invoice_number"))
+        invoice_raw = (request.POST.get("invoice_amount") or "").strip()
+        description = (request.POST.get("description") or "").strip()
+        supplier_form.update(
+            {
+                "name": name,
+                "phone_number": phone_number,
+                "invoice_number": invoice_number,
+                "invoice_amount": invoice_raw,
+                "description": description,
+            }
+        )
+        error = None
+        invoice_amount = None
+
+        if not name:
+            error = "Supplier name is required."
+        elif len(name) > 160:
+            error = "Supplier name must be 160 characters or fewer."
+        elif not phone_number:
+            error = "Supplier phone number is required."
+        elif len(phone_number) < 9:
+            error = "Enter a valid supplier phone number."
+        elif not invoice_number:
+            error = "Supplier invoice number is required."
+        elif len(invoice_number) > 120:
+            error = "Invoice number must be 120 characters or fewer."
+        else:
+            try:
+                invoice_amount = Decimal(invoice_raw)
+                if invoice_amount <= 0:
+                    raise ValueError
+            except Exception:
+                error = "Enter a valid invoice amount greater than zero."
+
+        if error is None and len(description) > 255:
+            error = "Description must be 255 characters or fewer."
+
+        if error:
+            messages.error(request, error)
+            open_supplier_modal = True
+        else:
+            try:
+                with transaction.atomic():
+                    supplier, created = get_or_create_store_supplier(
+                        name=name,
+                        phone_number=phone_number,
+                        user=request.user,
+                    )
+                    invoice = SupplierPurchaseInvoice(
+                        supplier=supplier,
+                        invoice_number=invoice_number,
+                        amount=invoice_amount,
+                        description=description,
+                        created_by=request.user,
+                    )
+                    invoice.save()
+                messages.success(
+                    request,
+                    (
+                        f"{'Registered' if created else 'Updated'} supplier "
+                        f"“{supplier.name}” with purchase invoice {invoice.invoice_number} "
+                        f"(KES {invoice.amount:,.2f})."
+                    ),
+                )
+                return redirect(
+                    "billing:supplier_account_detail", supplier_id=supplier.id
+                )
+            except ValueError as exc:
+                messages.error(request, str(exc))
+                open_supplier_modal = True
+
     suppliers = []
-    for supplier in StoreSupplier.objects.filter(is_active=True).order_by("name"):
+    for supplier in StoreSupplier.objects.all().order_by("-is_active", "name"):
         payable = _supplier_payable_movements(supplier.id)
         pending_count = payable.count()
+        open_invoices = supplier_open_purchase_invoices(supplier.id)
+        pending_count += open_invoices.count()
         outstanding = Decimal("0.00")
         for movement in payable:
             if movement.invoice_amount is not None:
                 outstanding += movement.amount_outstanding or Decimal("0.00")
+        for invoice in open_invoices:
+            outstanding += invoice.amount_outstanding or Decimal("0.00")
         suppliers.append(
             {
                 "supplier": supplier,
@@ -3157,23 +3310,35 @@ def supplier_accounts(request):
     return render(
         request,
         "billing/supplier_accounts.html",
-        {"suppliers": suppliers},
+        {
+            "suppliers": suppliers,
+            "open_supplier_modal": open_supplier_modal,
+            "supplier_form": supplier_form,
+        },
     )
 
 
 @portal_access_required
 @require_http_methods(["GET", "POST"])
 def supplier_account_detail(request, supplier_id):
-    supplier = get_object_or_404(StoreSupplier, pk=supplier_id, is_active=True)
+    supplier = get_object_or_404(StoreSupplier, pk=supplier_id)
     open_pay_modal = False
+    open_invoice_modal = False
     pay_form = {
         "movement_id": "",
+        "purchase_invoice_id": "",
         "account_id": "",
         "amount": "",
         "invoice_amount": "",
         "method": "",
         "item_label": "",
         "needs_invoice_amount": False,
+    }
+    invoice_form = {
+        "movement_id": "",
+        "invoice_amount": "",
+        "invoice_number": "",
+        "item_label": "",
     }
     preview_reference = generate_supplier_payment_reference_code()
 
@@ -3189,127 +3354,298 @@ def supplier_account_detail(request, supplier_id):
         pay_accounts.append({"account": account, "balance": balance})
 
     if request.method == "POST":
-        movement_id = (request.POST.get("movement_id") or "").strip()
-        account_id = (request.POST.get("account_id") or "").strip()
-        amount_raw = (request.POST.get("amount") or "").strip()
-        invoice_raw = (request.POST.get("invoice_amount") or "").strip()
-        method = upper_input(request.POST.get("method"))
-        pay_form.update(
-            {
-                "movement_id": movement_id,
-                "account_id": account_id,
-                "amount": amount_raw,
-                "invoice_amount": invoice_raw,
-                "method": method,
-            }
-        )
-        error = None
-        movement = None
-        account = None
-        amount = None
-        invoice_amount = None
+        action = (request.POST.get("action") or "pay").strip()
 
-        if not movement_id.isdigit():
-            error = "Select a delivery to pay."
-        else:
-            movement = get_object_or_404(
-                StoreStockMovement,
-                pk=int(movement_id),
-                supplier=supplier,
-                direction=StoreStockMovement.Direction.IN,
+        if action == "register_invoice":
+            movement_id = (request.POST.get("movement_id") or "").strip()
+            invoice_raw = (request.POST.get("invoice_amount") or "").strip()
+            invoice_number = upper_input(request.POST.get("invoice_number"))
+            invoice_form.update(
+                {
+                    "movement_id": movement_id,
+                    "invoice_amount": invoice_raw,
+                    "invoice_number": invoice_number,
+                }
             )
-            pay_form["item_label"] = movement.item.name
-            pay_form["needs_invoice_amount"] = movement.invoice_amount is None
-            if movement.payment_status not in PAYABLE_SUPPLIER_STATUSES:
-                error = "That delivery is already paid."
+            error = None
+            movement = None
+            invoice_amount = None
 
-        if error is None and not account_id.isdigit():
-            error = "Select the account to pay from."
-        elif error is None:
-            account = SchoolAccount.objects.filter(pk=int(account_id), is_active=True).first()
-            if account is None:
-                error = "Select a valid school account."
-
-        if error is None:
-            try:
-                amount = Decimal(amount_raw)
-                if amount <= 0:
-                    raise ValueError
-            except Exception:
-                error = "Enter a valid payment amount."
-
-        if error is None and movement.invoice_amount is None:
-            if not invoice_raw:
-                error = "Enter the invoice amount for this delivery."
+            if not movement_id.isdigit():
+                error = "Select a delivery to register the purchase invoice against."
             else:
+                movement = get_object_or_404(
+                    StoreStockMovement.objects.select_related("item"),
+                    pk=int(movement_id),
+                    supplier=supplier,
+                    direction=StoreStockMovement.Direction.IN,
+                )
+                invoice_form["item_label"] = movement.item.name
+                if movement.payment_status not in PAYABLE_SUPPLIER_STATUSES:
+                    error = "That delivery is already paid."
+                elif movement.invoice_amount is not None:
+                    error = "A purchase invoice is already registered for this delivery."
+
+            if error is None:
                 try:
                     invoice_amount = Decimal(invoice_raw)
                     if invoice_amount <= 0:
                         raise ValueError
                 except Exception:
-                    error = "Enter a valid invoice amount."
-        elif error is None:
-            invoice_amount = movement.invoice_amount
+                    error = "Enter a valid purchase invoice amount greater than zero."
 
-        if error is None and amount > (movement.amount_outstanding or invoice_amount):
-            error = "Payment amount exceeds the outstanding balance for this delivery."
+            if error is None and invoice_number and len(invoice_number) > 120:
+                error = "Invoice number must be 120 characters or fewer."
 
-        valid_methods = {choice for choice, _ in AccountWithdraw.Method.choices}
-        if error is None and method not in valid_methods:
-            error = "Select a valid payment method."
+            if error:
+                messages.error(request, error)
+                open_invoice_modal = True
+            else:
+                with transaction.atomic():
+                    locked_movement = StoreStockMovement.objects.select_for_update().get(
+                        pk=movement.pk
+                    )
+                    if locked_movement.invoice_amount is not None:
+                        messages.error(
+                            request,
+                            "A purchase invoice is already registered for this delivery.",
+                        )
+                        open_invoice_modal = True
+                    else:
+                        locked_movement.invoice_amount = invoice_amount
+                        update_fields = ["invoice_amount"]
+                        if invoice_number:
+                            note = f"Supplier invoice {invoice_number}"
+                            if locked_movement.notes:
+                                locked_movement.notes = (
+                                    f"{note} · {locked_movement.notes}"
+                                )[:255]
+                            else:
+                                locked_movement.notes = note[:255]
+                            update_fields.append("notes")
+                        locked_movement.refresh_payment_status(save=False)
+                        locked_movement.save(update_fields=update_fields)
+                        messages.success(
+                            request,
+                            f"Registered purchase invoice of KES {invoice_amount:,.2f}"
+                            f" for {movement.item.name}"
+                            + (
+                                f" ({invoice_number})."
+                                if invoice_number
+                                else "."
+                            ),
+                        )
+                        return redirect(
+                            "billing:supplier_account_detail",
+                            supplier_id=supplier.id,
+                        )
 
-        if error is None:
-            available = school_account_available_balance(account)
-            if amount > available:
-                error = f"Insufficient balance in {account.name} (KES {available:,.2f} available)."
-
-        if error:
-            messages.error(request, error)
-            open_pay_modal = True
-            preview_reference = generate_supplier_payment_reference_code()
         else:
-            with transaction.atomic():
-                locked_movement = StoreStockMovement.objects.select_for_update().get(
-                    pk=movement.pk
-                )
-                update_fields = ["amount_paid", "payment_status"]
-                if locked_movement.invoice_amount is None:
-                    locked_movement.invoice_amount = invoice_amount
-                    update_fields.append("invoice_amount")
-                locked_movement.amount_paid = (
-                    locked_movement.amount_paid or Decimal("0.00")
-                ) + amount
-                locked_movement.refresh_payment_status(save=False)
-                locked_movement.save(update_fields=update_fields)
-
-                payment = StoreSupplierPayment(
-                    movement=locked_movement,
-                    account=account,
-                    amount=amount,
-                    method=method,
-                    created_by=request.user,
-                )
-                payment.save()
-
-                withdrawal = AccountWithdraw(
-                    account=account,
-                    amount=amount,
-                    method=method,
-                    payee=supplier.name,
-                    description=f"Supplier payment · {locked_movement.reference_code}",
-                    reference_number=payment.reference_number,
-                    status=AccountWithdraw.Status.APPROVED,
-                    created_by=request.user,
-                )
-                withdrawal.save()
-                payment.withdrawal = withdrawal
-                payment.save(update_fields=["withdrawal"])
-
-            messages.success(
-                request,
-                f"Paid KES {amount:,.2f} to {supplier.name} ({payment.reference_code}).",
+            movement_id = (request.POST.get("movement_id") or "").strip()
+            purchase_invoice_id = (
+                request.POST.get("purchase_invoice_id") or ""
+            ).strip()
+            account_id = (request.POST.get("account_id") or "").strip()
+            amount_raw = (request.POST.get("amount") or "").strip()
+            invoice_raw = (request.POST.get("invoice_amount") or "").strip()
+            method = upper_input(request.POST.get("method"))
+            pay_form.update(
+                {
+                    "movement_id": movement_id,
+                    "purchase_invoice_id": purchase_invoice_id,
+                    "account_id": account_id,
+                    "amount": amount_raw,
+                    "invoice_amount": invoice_raw,
+                    "method": method,
+                }
             )
-            return redirect("billing:supplier_account_detail", supplier_id=supplier.id)
+            error = None
+            movement = None
+            purchase_invoice = None
+            account = None
+            amount = None
+            invoice_amount = None
+
+            if purchase_invoice_id.isdigit():
+                purchase_invoice = get_object_or_404(
+                    SupplierPurchaseInvoice,
+                    pk=int(purchase_invoice_id),
+                    supplier=supplier,
+                )
+                pay_form["item_label"] = (
+                    f"Invoice {purchase_invoice.invoice_number}"
+                )
+                if purchase_invoice.status == SupplierPurchaseInvoice.Status.PAID:
+                    error = "That purchase invoice is already paid."
+            elif movement_id.isdigit():
+                movement = get_object_or_404(
+                    StoreStockMovement,
+                    pk=int(movement_id),
+                    supplier=supplier,
+                    direction=StoreStockMovement.Direction.IN,
+                )
+                pay_form["item_label"] = movement.item.name
+                pay_form["needs_invoice_amount"] = movement.invoice_amount is None
+                if movement.payment_status not in PAYABLE_SUPPLIER_STATUSES:
+                    error = "That delivery is already paid."
+            else:
+                error = "Select a delivery or purchase invoice to pay."
+
+            if error is None and not account_id.isdigit():
+                error = "Select the account to pay from."
+            elif error is None:
+                account = SchoolAccount.objects.filter(
+                    pk=int(account_id), is_active=True
+                ).first()
+                if account is None:
+                    error = "Select a valid school account."
+
+            if error is None:
+                try:
+                    amount = Decimal(amount_raw)
+                    if amount <= 0:
+                        raise ValueError
+                except Exception:
+                    error = "Enter a valid payment amount."
+
+            if error is None and purchase_invoice is not None:
+                if amount > purchase_invoice.amount_outstanding:
+                    error = (
+                        "Payment amount exceeds the outstanding balance "
+                        "for this purchase invoice."
+                    )
+            elif error is None and movement is not None:
+                if movement.invoice_amount is None:
+                    if not invoice_raw:
+                        error = "Enter the invoice amount for this delivery."
+                    else:
+                        try:
+                            invoice_amount = Decimal(invoice_raw)
+                            if invoice_amount <= 0:
+                                raise ValueError
+                        except Exception:
+                            error = "Enter a valid invoice amount."
+                else:
+                    invoice_amount = movement.invoice_amount
+
+                if error is None and amount > (
+                    movement.amount_outstanding or invoice_amount
+                ):
+                    error = (
+                        "Payment amount exceeds the outstanding balance "
+                        "for this delivery."
+                    )
+
+            valid_methods = {choice for choice, _ in AccountWithdraw.Method.choices}
+            if error is None and method not in valid_methods:
+                error = "Select a valid payment method."
+
+            if error is None:
+                available = school_account_available_balance(account)
+                if amount > available:
+                    error = (
+                        f"Insufficient balance in {account.name} "
+                        f"(KES {available:,.2f} available)."
+                    )
+
+            if error:
+                messages.error(request, error)
+                open_pay_modal = True
+                preview_reference = generate_supplier_payment_reference_code()
+            elif purchase_invoice is not None:
+                with transaction.atomic():
+                    locked_invoice = (
+                        SupplierPurchaseInvoice.objects.select_for_update().get(
+                            pk=purchase_invoice.pk
+                        )
+                    )
+                    locked_invoice.amount_paid = (
+                        locked_invoice.amount_paid or Decimal("0.00")
+                    ) + amount
+                    locked_invoice.refresh_status(save=False)
+                    locked_invoice.save(update_fields=["amount_paid", "status"])
+
+                    payment = StoreSupplierPayment(
+                        purchase_invoice=locked_invoice,
+                        account=account,
+                        amount=amount,
+                        method=method,
+                        created_by=request.user,
+                    )
+                    payment.save()
+
+                    withdrawal = AccountWithdraw(
+                        account=account,
+                        amount=amount,
+                        method=method,
+                        payee=supplier.name,
+                        description=(
+                            f"Supplier invoice · {locked_invoice.invoice_number}"
+                        ),
+                        reference_number=payment.reference_number,
+                        status=AccountWithdraw.Status.APPROVED,
+                        created_by=request.user,
+                    )
+                    withdrawal.save()
+                    payment.withdrawal = withdrawal
+                    payment.save(update_fields=["withdrawal"])
+
+                messages.success(
+                    request,
+                    f"Paid KES {amount:,.2f} to {supplier.name} "
+                    f"({payment.reference_code}).",
+                )
+                return redirect(
+                    "billing:supplier_account_detail", supplier_id=supplier.id
+                )
+            else:
+                with transaction.atomic():
+                    locked_movement = StoreStockMovement.objects.select_for_update().get(
+                        pk=movement.pk
+                    )
+                    update_fields = ["amount_paid", "payment_status"]
+                    if locked_movement.invoice_amount is None:
+                        locked_movement.invoice_amount = invoice_amount
+                        update_fields.append("invoice_amount")
+                    locked_movement.amount_paid = (
+                        locked_movement.amount_paid or Decimal("0.00")
+                    ) + amount
+                    locked_movement.refresh_payment_status(save=False)
+                    locked_movement.save(update_fields=update_fields)
+
+                    payment = StoreSupplierPayment(
+                        movement=locked_movement,
+                        account=account,
+                        amount=amount,
+                        method=method,
+                        created_by=request.user,
+                    )
+                    payment.save()
+
+                    withdrawal = AccountWithdraw(
+                        account=account,
+                        amount=amount,
+                        method=method,
+                        payee=supplier.name,
+                        description=(
+                            f"Supplier payment · {locked_movement.reference_code}"
+                        ),
+                        reference_number=payment.reference_number,
+                        status=AccountWithdraw.Status.APPROVED,
+                        created_by=request.user,
+                    )
+                    withdrawal.save()
+                    payment.withdrawal = withdrawal
+                    payment.save(update_fields=["withdrawal"])
+
+                messages.success(
+                    request,
+                    f"Paid KES {amount:,.2f} to {supplier.name} "
+                    f"({payment.reference_code}).",
+                )
+                return redirect(
+                    "billing:supplier_account_detail", supplier_id=supplier.id
+                )
 
     if open_pay_modal and pay_form["movement_id"] and not pay_form["item_label"]:
         match = next(
@@ -3320,9 +3656,32 @@ def supplier_account_detail(request, supplier_id):
             pay_form["item_label"] = match.item.name
             pay_form["needs_invoice_amount"] = match.invoice_amount is None
 
+    if open_invoice_modal and invoice_form["movement_id"] and not invoice_form["item_label"]:
+        match = next(
+            (
+                m
+                for m in payable_movements
+                if str(m.id) == str(invoice_form["movement_id"])
+            ),
+            None,
+        )
+        if match:
+            invoice_form["item_label"] = match.item.name
+
+    awaiting_invoice = [m for m in payable_movements if m.invoice_amount is None]
+    ready_to_pay = [m for m in payable_movements if m.invoice_amount is not None]
+    purchase_invoices = list(supplier_open_purchase_invoices(supplier.id))
+
     recent_payments = (
-        StoreSupplierPayment.objects.filter(movement__supplier=supplier)
-        .select_related("movement", "movement__item", "account")
+        StoreSupplierPayment.objects.filter(
+            Q(movement__supplier=supplier) | Q(purchase_invoice__supplier=supplier)
+        )
+        .select_related(
+            "movement",
+            "movement__item",
+            "purchase_invoice",
+            "account",
+        )
         .order_by("-created_at")[:15]
     )
 
@@ -3332,10 +3691,15 @@ def supplier_account_detail(request, supplier_id):
         {
             "supplier": supplier,
             "payable_movements": payable_movements,
+            "awaiting_invoice": awaiting_invoice,
+            "ready_to_pay": ready_to_pay,
+            "purchase_invoices": purchase_invoices,
             "pay_accounts": pay_accounts,
             "pay_methods": AccountWithdraw.Method.choices,
             "open_pay_modal": open_pay_modal,
+            "open_invoice_modal": open_invoice_modal,
             "pay_form": pay_form,
+            "invoice_form": invoice_form,
             "preview_reference": preview_reference,
             "recent_payments": recent_payments,
         },

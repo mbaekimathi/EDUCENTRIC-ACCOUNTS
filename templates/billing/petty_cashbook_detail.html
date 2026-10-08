@@ -5,8 +5,10 @@
 {% block header_title %}{{ account.name }}{% endblock %}
 
 {% block sidebar_page_nav %}
+<p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Petty cashbook</p>
+{% url 'billing:petty_cashbook' as petty_href %}
+{% include "components/sidebar_page_link.html" with href=petty_href label="Back to accounts" %}
 {% if account.is_active %}
-<p class="app-nav-label app-nav-label-section mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Actions</p>
 <button type="button" class="app-nav-link app-nav-button" data-open-topup-modal :title="sidebarCollapsed ? 'Top up' : null">
   <svg class="app-nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
     <path d="M12 3v18M7 8h7.5a3.5 3.5 0 0 1 0 7H9" stroke-linecap="round" stroke-linejoin="round"/>
@@ -28,134 +30,123 @@
     <p class="sa-hero-kicker">{{ account.category_label }}</p>
     <h2 class="sa-hero-title">{{ account.name }}</h2>
     <p class="sa-hero-copy">
-      {% if account.description %}{{ account.description }}{% else %}No description provided.{% endif %}
+      {% if account.description %}{{ account.description }}{% else %}Account ledger of top-ups and withdrawals.{% endif %}
     </p>
   </div>
-  <div class="sa-hero__body">
-    <div class="sad-meta">
-      {% if account.is_active %}
-      <span class="sa-badge is-active">Active</span>
-      {% else %}
-      <span class="sa-badge is-suspended">Suspended</span>
-      {% endif %}
-    </div>
+</section>
+
+<section class="sa-section">
+  <article class="ledger-modern {% if is_balanced %}is-balanced{% else %}is-unbalanced{% endif %}">
+    <header class="ledger-modern__head is-simple">
+      <div class="ledger-profile is-inline">
+        <div class="ledger-profile__avatar" aria-hidden="true">
+          <span>{{ account.name|slice:":1" }}</span>
+        </div>
+        <div class="ledger-profile__body">
+          <p class="ledger-profile__name">{{ account.name }}</p>
+          <p class="ledger-profile__meta">
+            Petty cashbook ledger
+            {% if account.is_active %}
+            · <span class="sa-badge is-active">Active</span>
+            {% else %}
+            · <span class="sa-badge is-suspended">Suspended</span>
+            {% endif %}
+            {% if is_balanced %}
+            · <span class="sa-badge is-active">Balanced</span>
+            {% else %}
+            · <span class="sa-badge is-suspended">Out of balance</span>
+            {% endif %}
+          </p>
+        </div>
+      </div>
+      <div class="ledger-modern__metrics is-compact">
+        <div>
+          <p class="ledger-modern__summary-label">Credits</p>
+          <p class="ledger-modern__summary-value is-credit">KES {{ topped_up|floatformat:2 }}</p>
+        </div>
+        <div>
+          <p class="ledger-modern__summary-label">Debits</p>
+          <p class="ledger-modern__summary-value is-debit">KES {{ withdrawn|floatformat:2 }}</p>
+        </div>
+        <div>
+          <p class="ledger-modern__summary-label">Balance</p>
+          <p class="ledger-modern__summary-value is-balance">KES {{ balance|floatformat:2 }}</p>
+        </div>
+      </div>
+    </header>
+
     {% if account.is_active %}
-    <div class="sad-tools">
+    <div class="sad-tools" style="padding: 0 1.25rem 1rem;">
       <button type="button" class="btn-ghost btn-compact" data-open-topup-modal>Top up</button>
       <button type="button" class="btn-primary btn-compact" data-open-withdraw-modal>Withdraw</button>
     </div>
     {% endif %}
-  </div>
-</section>
 
-<section class="sa-stats">
-  <article class="sa-stat">
-    <p class="sa-stat-label">Available balance</p>
-    <p class="sa-stat-value is-brand">KES {{ balance|floatformat:2 }}</p>
-    <p class="sa-stat-meta">{% if pending_topups %}{{ pending_topups }} pending top-up{{ pending_topups|pluralize }}{% else %}Ready to spend{% endif %}</p>
-  </article>
-  <article class="sa-stat">
-    <p class="sa-stat-label">Total topped up</p>
-    <p class="sa-stat-value">KES {{ topped_up|floatformat:2 }}</p>
-    <p class="sa-stat-meta">Approved credits</p>
-  </article>
-  <article class="sa-stat">
-    <p class="sa-stat-label">Total withdrawn</p>
-    <p class="sa-stat-value is-accent">KES {{ withdrawn|floatformat:2 }}</p>
-    <p class="sa-stat-meta">Approved debits</p>
-  </article>
-</section>
-
-<section class="sa-section">
-  <div class="sa-section-head">
-    <div>
-      <h3 class="sa-section-title">Top-ups</h3>
-      <p class="sa-section-copy">Credits posted to this petty cashbook account</p>
+    <div class="ledger-modern__sheet">
+      <table class="ledger-modern__table">
+        <thead>
+          <tr>
+            <th class="is-row">#</th>
+            <th>Posted</th>
+            <th>Particulars</th>
+            <th>Method</th>
+            <th>Reference</th>
+            <th class="is-num">Debit</th>
+            <th class="is-num">Credit</th>
+            <th class="is-num">Balance</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="is-muted">
+            <td class="is-row">0</td>
+            <td>—</td>
+            <td>
+              <p class="ledger-modern__main">Opening balance</p>
+              <p class="ledger-modern__hint">Balance b/d</p>
+            </td>
+            <td>—</td>
+            <td>—</td>
+            <td class="is-num">—</td>
+            <td class="is-num">—</td>
+            <td class="is-num">0.00</td>
+          </tr>
+          {% for row in ledger_rows %}
+          <tr>
+            <td class="is-row">{{ forloop.counter }}</td>
+            <td>
+              <p class="ledger-modern__main">{{ row.created_at|date:"d M Y" }} · {{ row.created_at|date:"H:i" }}</p>
+              <p class="ledger-modern__hint">{{ row.staff_name }}</p>
+            </td>
+            <td>
+              <p class="ledger-modern__main">{{ row.particulars }}</p>
+              <p class="ledger-modern__hint">{{ row.hint }}</p>
+            </td>
+            <td>{{ row.method }}</td>
+            <td>
+              <p class="ledger-modern__main">{{ row.reference_code }}</p>
+              <p class="ledger-modern__hint">{{ row.reference_number }}</p>
+            </td>
+            <td class="is-num is-debit">{% if row.debit %}{{ row.debit|floatformat:2 }}{% else %}—{% endif %}</td>
+            <td class="is-num is-credit">{% if row.credit %}{{ row.credit|floatformat:2 }}{% else %}—{% endif %}</td>
+            <td class="is-num is-balance">{{ row.balance|floatformat:2 }}</td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="8" class="ledger-modern__empty">No postings on this account yet.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="5">Totals</td>
+            <td class="is-num is-debit">{{ withdrawn|floatformat:2 }}</td>
+            <td class="is-num is-credit">{{ topped_up|floatformat:2 }}</td>
+            <td class="is-num is-balance">{{ balance|floatformat:2 }}</td>
+          </tr>
+        </tfoot>
+      </table>
     </div>
-    {% if account.is_active %}
-    <button type="button" class="btn-ghost btn-compact" data-open-topup-modal>Top up</button>
-    {% endif %}
-  </div>
-
-  <div class="sa-table-wrap">
-    <table class="sa-table">
-      <thead>
-        <tr>
-          <th>Reference</th>
-          <th>Method</th>
-          <th>Amount</th>
-          <th>Status</th>
-          <th>When</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for topup in topups %}
-        <tr>
-          <td>
-            <p class="sa-table-primary">{{ topup.reference_code }}</p>
-            <p class="sa-table-secondary">{{ topup.reference_number }}{% if topup.description %} · {{ topup.description }}{% endif %}</p>
-          </td>
-          <td>{{ topup.get_method_display }}</td>
-          <td class="is-brand">KES {{ topup.amount|floatformat:2 }}</td>
-          <td>
-            <span class="sa-badge {% if topup.status == 'APPROVED' %}is-active{% elif topup.status == 'PENDING' %}is-pending{% else %}is-suspended{% endif %}">
-              {{ topup.get_status_display }}
-            </span>
-          </td>
-          <td>{{ topup.created_at|date:"d M Y, H:i" }}</td>
-        </tr>
-        {% empty %}
-        <tr>
-          <td colspan="5" class="sa-table-empty">No top-ups recorded yet.</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
-
-<section class="sa-section">
-  <div class="sa-section-head">
-    <div>
-      <h3 class="sa-section-title">Withdrawals</h3>
-      <p class="sa-section-copy">Debits recorded against this petty cashbook account</p>
-    </div>
-    {% if account.is_active %}
-    <button type="button" class="btn-primary btn-compact" data-open-withdraw-modal>Withdraw</button>
-    {% endif %}
-  </div>
-
-  <div class="sa-table-wrap">
-    <table class="sa-table">
-      <thead>
-        <tr>
-          <th>Reference</th>
-          <th>Payee</th>
-          <th>Method</th>
-          <th>Amount</th>
-          <th>When</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for withdrawal in withdrawals %}
-        <tr>
-          <td>
-            <p class="sa-table-primary">{{ withdrawal.reference_code }}</p>
-            <p class="sa-table-secondary">{{ withdrawal.reference_number }}{% if withdrawal.description %} · {{ withdrawal.description }}{% endif %}</p>
-          </td>
-          <td>{{ withdrawal.payee }}</td>
-          <td>{{ withdrawal.get_method_display }}</td>
-          <td class="is-accent">KES {{ withdrawal.amount|floatformat:2 }}</td>
-          <td>{{ withdrawal.created_at|date:"d M Y, H:i" }}</td>
-        </tr>
-        {% empty %}
-        <tr>
-          <td colspan="5" class="sa-table-empty">No withdrawals recorded yet.</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  </article>
 </section>
 
 <dialog id="topup-modal" class="account-modal" {% if open_topup_modal %}open{% endif %}>

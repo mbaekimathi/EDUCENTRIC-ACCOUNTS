@@ -23,7 +23,6 @@
   </div>
 
   <nav class="flex flex-1 flex-col gap-0.5 overflow-y-auto px-3 py-4" aria-label="Primary">
-    {% if not store_workspace %}
     <p class="app-nav-label mb-2 px-2" :class="sidebarCollapsed && 'lg:hidden'">Workspace</p>
 
     <a href="{% url 'billing:dashboard' %}"
@@ -46,4 +45,3 @@
       </svg>
       <span class="app-nav-link__label" :class="sidebarCollapsed && 'lg:hidden'">Find Student</span>
     </a>
-    {% endif %}

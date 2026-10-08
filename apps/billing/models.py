@@ -1368,6 +1368,14 @@ class StoreStockMovement(models.Model):
         blank=True,
         related_name="stock_transfers_received",
     )
+    unit_buying_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.01"))],
+        help_text="Buying price per unit at stock in.",
+    )
     invoice_amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -1486,11 +1494,105 @@ def supplier_payable_movements(supplier_id):
     )
 
 
+def generate_purchase_invoice_reference_code() -> str:
+    import secrets
+
+    stamp = timezone.now().strftime("%Y%m%d")
+    return f"PIN-{stamp}-{secrets.token_hex(3).upper()}"
+
+
+class SupplierPurchaseInvoice(models.Model):
+    """Purchase invoice registered against a supplier (accounts payable)."""
+
+    class Status(models.TextChoices):
+        UNPAID = "UNPAID", "Unpaid"
+        PARTIAL = "PARTIAL", "Partially paid"
+        PAID = "PAID", "Paid"
+
+    supplier = models.ForeignKey(
+        StoreSupplier,
+        on_delete=models.PROTECT,
+        related_name="purchase_invoices",
+    )
+    invoice_number = models.CharField(max_length=120)
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    amount_paid = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    description = models.CharField(max_length=255, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.UNPAID,
+    )
+    reference_code = models.CharField(max_length=40, unique=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="supplier_purchase_invoices_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "accounts_supplier_purchase_invoice"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.reference_code} · {self.invoice_number} · {self.amount}"
+
+    @property
+    def amount_outstanding(self):
+        return max(self.amount - (self.amount_paid or Decimal("0.00")), Decimal("0.00"))
+
+    def refresh_status(self, save=True):
+        paid = self.amount_paid or Decimal("0.00")
+        if paid <= 0:
+            self.status = self.Status.UNPAID
+        elif paid >= self.amount:
+            self.status = self.Status.PAID
+            self.amount_paid = self.amount
+        else:
+            self.status = self.Status.PARTIAL
+        if save:
+            self.save(update_fields=["status", "amount_paid"])
+
+    def save(self, *args, **kwargs):
+        if not self.reference_code:
+            for _ in range(8):
+                candidate = generate_purchase_invoice_reference_code()
+                if not type(self).objects.filter(reference_code=candidate).exists():
+                    self.reference_code = candidate
+                    break
+            if not self.reference_code:
+                self.reference_code = generate_purchase_invoice_reference_code()
+        super().save(*args, **kwargs)
+
+
+def supplier_open_purchase_invoices(supplier_id):
+    return SupplierPurchaseInvoice.objects.filter(
+        supplier_id=supplier_id,
+        status__in=[
+            SupplierPurchaseInvoice.Status.UNPAID,
+            SupplierPurchaseInvoice.Status.PARTIAL,
+        ],
+    ).order_by("created_at", "id")
+
+
 def supplier_outstanding_balance(supplier_id) -> Decimal:
     """Total unpaid invoice balance the school owes a supplier."""
     outstanding = Decimal("0.00")
     for movement in supplier_payable_movements(supplier_id):
         outstanding += movement.amount_outstanding or Decimal("0.00")
+    for invoice in supplier_open_purchase_invoices(supplier_id):
+        outstanding += invoice.amount_outstanding or Decimal("0.00")
     return outstanding
 
 
@@ -1541,6 +1643,32 @@ def apply_barter_to_supplier(
             settled += slice_amount
             remaining -= slice_amount
 
+        invoices = list(
+            supplier_open_purchase_invoices(supplier.id).select_for_update()
+        )
+        for invoice in invoices:
+            if remaining <= 0:
+                break
+            owed = invoice.amount_outstanding or Decimal("0.00")
+            if owed <= 0:
+                continue
+            slice_amount = min(remaining, owed)
+            invoice.amount_paid = (invoice.amount_paid or Decimal("0.00")) + slice_amount
+            invoice.refresh_status(save=False)
+            invoice.save(update_fields=["amount_paid", "status"])
+
+            payment = StoreSupplierPayment(
+                purchase_invoice=invoice,
+                account=account,
+                amount=slice_amount,
+                method=AccountWithdraw.Method.BARTER,
+                reference_number=reference or f"BARTER-{supplier.id}",
+                created_by=user if getattr(user, "is_authenticated", False) else None,
+            )
+            payment.save()
+            settled += slice_amount
+            remaining -= slice_amount
+
     if settled <= 0:
         raise ValueError("This supplier has no tradable outstanding balance.")
     if settled < amount:
@@ -1558,12 +1686,21 @@ def generate_supplier_payment_reference_code() -> str:
 
 
 class StoreSupplierPayment(models.Model):
-    """Payment to a supplier for a stock-in delivery."""
+    """Payment to a supplier for a stock-in delivery or purchase invoice."""
 
     movement = models.ForeignKey(
         StoreStockMovement,
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name="supplier_payments",
+    )
+    purchase_invoice = models.ForeignKey(
+        "SupplierPurchaseInvoice",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="payments",
     )
     account = models.ForeignKey(
         SchoolAccount,
@@ -1602,6 +1739,10 @@ class StoreSupplierPayment(models.Model):
         return f"{self.reference_code} · {self.amount}"
 
     def save(self, *args, **kwargs):
+        if bool(self.movement_id) == bool(self.purchase_invoice_id):
+            raise ValueError(
+                "Supplier payment must link to either a delivery or a purchase invoice."
+            )
         if not self.reference_code:
             for _ in range(8):
                 candidate = generate_supplier_payment_reference_code()

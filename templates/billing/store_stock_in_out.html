@@ -156,6 +156,29 @@
         >
       </label>
 
+      <div id="stock-buying-fields" class="space-y-4">
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-400">Buying price per unit *</span>
+          <input
+            type="number"
+            name="unit_buying_price"
+            id="stock-unit-buying-price"
+            min="0.01"
+            step="0.01"
+            value="{{ stock_form.unit_buying_price }}"
+            class="field-input"
+            placeholder="0.00"
+          >
+        </label>
+        <div class="rounded-xl border border-ink-950/8 bg-ink-950/[0.03] px-3 py-2.5">
+          <p class="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">Total cost</p>
+          <p class="mt-1 text-lg font-semibold text-ink-950">
+            KES <span id="stock-total-cost">0.00</span>
+          </p>
+          <p class="mt-0.5 text-xs text-ink-400">Buying price × quantity</p>
+        </div>
+      </div>
+
       <div id="stock-in-fields">
         <div class="relative" data-supplier-suggest>
           <label class="block">
@@ -301,6 +324,9 @@
   var onHand = document.getElementById("stock-on-hand");
   var measureLabel = document.getElementById("stock-measure-label");
   var quantity = document.getElementById("stock-quantity");
+  var unitBuyingPrice = document.getElementById("stock-unit-buying-price");
+  var totalCost = document.getElementById("stock-total-cost");
+  var buyingFields = document.getElementById("stock-buying-fields");
   var submit = document.getElementById("stock-submit");
   var paymentWrap = document.getElementById("stock-payment-wrap");
   var paymentStatus = document.getElementById("stock-payment-status");
@@ -314,6 +340,20 @@
   var destinationStation = document.getElementById("stock-destination-station");
   var suggestUrl = "{{ supplier_suggest_url|escapejs }}";
   var suggestTimers = {};
+
+  function formatMoney(value) {
+    if (!isFinite(value) || value < 0) return "0.00";
+    return value.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+  function syncTotalCost() {
+    if (!totalCost) return;
+    var qty = parseFloat(quantity && quantity.value ? quantity.value : "0") || 0;
+    var price = parseFloat(unitBuyingPrice && unitBuyingPrice.value ? unitBuyingPrice.value : "0") || 0;
+    totalCost.textContent = formatMoney(qty * price);
+  }
 
   function openModal() {
     if (typeof modal.showModal === "function") {
@@ -342,6 +382,8 @@
     if (transferWrap) transferWrap.hidden = !isTransfer;
     setRequired(destinationStation, isTransfer);
     if (inFields) inFields.hidden = !isReturn;
+    if (buyingFields) buyingFields.hidden = true;
+    setRequired(unitBuyingPrice, false);
     if (paymentWrap) paymentWrap.hidden = true;
     setRequired(paymentStatus, false);
     setRequired(supplierName, isReturn);
@@ -354,6 +396,8 @@
     submit.textContent = isOut ? "Stock out" : "Stock in & print receipt";
     if (outFields) outFields.hidden = !isOut;
     if (isOut) {
+      if (buyingFields) buyingFields.hidden = true;
+      setRequired(unitBuyingPrice, false);
       if (paymentWrap) paymentWrap.hidden = true;
       setRequired(paymentStatus, false);
       paymentStatus.value = "";
@@ -361,6 +405,8 @@
       syncOutReasonUI();
     } else {
       if (inFields) inFields.hidden = false;
+      if (buyingFields) buyingFields.hidden = false;
+      setRequired(unitBuyingPrice, true);
       if (paymentWrap) paymentWrap.hidden = false;
       setRequired(paymentStatus, true);
       setRequired(outReason, false);
@@ -368,7 +414,8 @@
       setRequired(supplierName, true);
       setRequired(supplierPhone, true);
       if (outReason) outReason.value = "";
-      if (!paymentStatus.value) paymentStatus.value = "UNPAID";
+      paymentStatus.value = "UNPAID";
+      syncTotalCost();
     }
   }
   function clearSupplier() {
@@ -386,6 +433,9 @@
     measureLabel.textContent = measure ? " · " + measure : "";
     quantity.value = "";
     quantity.removeAttribute("max");
+    if (unitBuyingPrice) unitBuyingPrice.value = "";
+    if (totalCost) totalCost.textContent = "0.00";
+    if (paymentStatus) paymentStatus.value = "UNPAID";
     supplierId.value = "";
     supplierName.value = "";
     supplierPhone.value = "";
@@ -512,6 +562,8 @@
   });
   bindSuggest(supplierName);
   bindSuggest(supplierPhone);
+  if (quantity) quantity.addEventListener("input", syncTotalCost);
+  if (unitBuyingPrice) unitBuyingPrice.addEventListener("input", syncTotalCost);
 
   {% if open_stock_modal %}
   openModal();
@@ -519,6 +571,7 @@
   if (direction.value === "OUT") {
     quantity.setAttribute("max", onHand.textContent || "0");
   }
+  syncTotalCost();
   {% endif %}
 })();
 </script>
